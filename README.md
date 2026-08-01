@@ -119,6 +119,114 @@ Open **http://localhost:5000** and log in.
 
 ---
 
+## Screenshots
+
+### Dashboard
+
+The dashboard shows portfolio KPIs, score distribution by band, a live credit score trend line, risk class breakdown, and decision outcome counts.
+
+![Dashboard](Images/image4.png)
+
+---
+
+### New Scoring Application
+
+A 3-step form (Personal, Credit, Loan) with quick presets for common borrower profiles.
+
+![New Application Form](Images/image1.png)
+
+---
+
+### Evaluation Report
+
+Every scored application gets a full report: FICO-style gauge, decision banner, SHAP feature contribution chart, and a complete financial profile of the applicant.
+
+![Evaluation Report - Score and SHAP](Images/image2.png)
+
+![Evaluation Report - Financial Profile](Images/image3.png)
+
+---
+
+### Risk Analytics — Model Validation
+
+SR 11-7 compliance metrics computed from live scored applications: AUC-ROC, Gini coefficient, KS statistic, and PSI.
+
+![Model Validation](Images/image5.png)
+
+---
+
+### Risk Analytics — Stress Testing
+
+CCAR/DFAST adverse scenarios applied to the portfolio. Shows approvals lost, exposure at risk, and expected loss increase per scenario.
+
+![Stress Testing](Images/image6.png)
+
+---
+
+### Risk Analytics — Expected Loss
+
+PD x LGD x EAD calculation per application. LGD fixed at 45% (Basel standard for unsecured retail). Ranked by expected loss exposure.
+
+![Expected Loss](Images/image7.png)
+
+---
+
+### Risk Analytics — Audit Trail
+
+Immutable append-only log of every application scored, login, override, and role change. Compliant with SR 11-7, SOX, and GDPR.
+
+![Audit Trail](Images/image8.png)
+
+---
+
+### Risk Analytics — Champion / Challenger
+
+Side-by-side comparison of the production champion model against a shadow challenger. Displays Gini, KS, approval rate, and promotion criteria.
+
+![Champion Challenger](Images/image9.png)
+
+---
+
+### Risk Analytics — Basel III Capital
+
+Risk-Weighted Assets, Capital Required, and Capital Adequacy Ratio for the approved portfolio using IRB approach risk weight tiers.
+
+![Basel III Capital](Images/image10.png)
+
+---
+
+### Risk Analytics — Fraud Velocity
+
+User-level velocity flags (multiple applications in 24h) and IP-level reuse detection (multiple accounts from the same IP in 7 days).
+
+![Fraud Velocity](Images/image11.png)
+
+---
+
+### Admin Panel — User Management
+
+Manage users and change roles directly from the Users tab. All role changes are recorded in the audit trail.
+
+![Admin Panel Users](Images/image12.png)
+
+---
+
+### Admin Panel — Invite Links
+
+Generate single-use invite links to onboard analysts. The invited user sets their own password and the account activates immediately.
+
+![Admin Panel Invite](Images/image13.png)
+
+---
+
+### Admin Panel — Role Definitions
+
+Full breakdown of what each role (Admin, Analyst, User) can access and do within the platform.
+
+![Admin Panel Roles](Images/image14.png)
+
+---
+
 ## How the Scoring Works
 
 ### Step 1 — Input
@@ -276,6 +384,7 @@ Credit-Risk-Scoring-Engine-main/
 │   ├── train_model.py        # Synthetic dataset generation, model training
 │   ├── model.pkl             # Trained model bundle (git-ignored, generate locally)
 │   └── requirements.txt      # Python dependencies
+├── Images/                   # Screenshots used in README
 ├── .env                      # Local configuration (never commit this)
 ├── .env.example              # Template for .env
 ├── README.md                 # This file

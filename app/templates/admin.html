@@ -420,8 +420,24 @@ async function generateInvite() {
 }
 
 function copyUrl() {
-  const v = document.getElementById('invite-url-display').value;
-  navigator.clipboard.writeText(v).then(() => showToast('Copied to clipboard', false));
+  const input = document.getElementById('invite-url-display');
+  const v = input.value;
+  if (!v) return;
+
+  // navigator.clipboard requires HTTPS or localhost — falls back for LAN IPs
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(v).then(() => showToast('Copied to clipboard', false));
+  } else {
+    input.select();
+    input.setSelectionRange(0, 99999);
+    try {
+      document.execCommand('copy');
+      showToast('Copied to clipboard', false);
+    } catch (e) {
+      showToast('Copy failed — select the URL manually', true);
+    }
+    window.getSelection()?.removeAllRanges();
+  }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
