@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}New Application — RiskEngine{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>New Scoring Application</h1>
+  <p>Capture applicant credentials, financial background, and loan terms.</p>
+</div>
+
+<!-- Presets -->
+<div class="presets-bar">
+  <span class="ps-label">&#10024; Quick Presets:</span>
+  <button class="preset-btn" onclick="applyPreset('prime')">Prime Borrower (Low Risk)</button>
+  <button class="preset-btn" onclick="applyPreset('mixed')">Mixed Profile (Medium Risk)</button>
+  <button class="preset-btn" onclick="applyPreset('subprime')">Subprime Borrower (High Risk)</button>
+</div>
+
+<!-- Step indicators -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:13px;color:var(--muted)">
+  <span id="step-ind-1" style="font-weight:700;color:var(--accent)">1. Personal</span>
+  <span>&rsaquo;</span>
+  <span id="step-ind-2">2. Credit</span>
+  <span>&rsaquo;</span>
+  <span id="step-ind-3">3. Loan</span>
+</div>
+
+<div class="panel">
+  <div class="progress-bar"><div class="progress-fill" id="progress" style="width:33%"></div></div>
+
+  <form id="app-form">
+    <!-- Step 1: Personal -->
+    <div class="step-panel active" id="step-1">
+      <label class="full">Applicant Full Name<input type="text" id="f-name" placeholder="Enter full name" required/></label>
+      <label>Age<input type="number" id="f-age" min="18" max="85" placeholder="18–85" required/></label>
+      <label>Employment Type
+        <select id="f-employment_type" required>
+          <option value="Salaried">Salaried</option>
+          <option value="Self-Employed">Self-Employed</option>
+          <option value="Freelancer">Freelancer</option>
+          <option value="Unemployed">Unemployed</option>
+        </select>
+      </label>
+      <label>Annual Income (₹)<input type="number" id="f-annual_income" min="1" placeholder="e.g. 950000" required/></label>
+      <label>Employment Years<input type="number" id="f-employment_years" min="0" step="0.5" placeholder="0+" required/></label>
+    </div>
+
+    <!-- Step 2: Credit -->
+    <div class="step-panel" id="step-2">
+      <label>Credit History Length (Years)<input type="number" id="f-credit_history_length" min="0" step="0.5" required/></label>
+      <label>Debt-to-Income Ratio (0–1)<input type="number" id="f-debt_to_income_ratio" min="0" max="1" step="0.01" required/></label>
+      <label>Active Loans Count<input type="number" id="f-existing_loans" min="0" required/></label>
+      <label>Past Delinquencies<input type="number" id="f-num_delinquencies" min="0" required/></label>
+      <label>Payment History Score (0–100)<input type="number" id="f-payment_history_score" min="0" max="100" required/></label>
+      <label>Open Credit Accounts<input type="number" id="f-num_credit_accounts" min="0" required/></label>
+    </div>
+
+    <!-- Step 3: Loan -->
+    <div class="step-panel" id="step-3">
+      <label>Requested Loan Amount (₹)<input type="number" id="f-loan_amount" min="1" placeholder="e.g. 250000" required/></label>
+      <label>Loan Purpose
+        <select id="f-loan_purpose" required>
+          <option value="Personal">Personal</option>
+          <option value="Auto">Auto</option>
+          <option value="Home">Home</option>
+          <option value="Education">Education</option>
+          <option value="Venture">Venture</option>
+        </select>
+      </label>
+      <label class="full">Loan Tenure (Months)<input type="number" id="f-tenure" min="6" max="360" placeholder="6–360" required/></label>
+    </div>
+
+    <div id="form-error" class="error-box" style="margin-top:16px"></div>
+
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" id="btn-back" onclick="prevStep()" disabled>
+        &larr; Back
+      </button>
+      <button type="button" class="btn btn-primary" id="btn-next" onclick="nextStep()">
+        Next &rarr;
+      </button>
+      <button type="submit" class="btn btn-primary" id="btn-submit" style="display:none">
+        &#10024; Submit for Score
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PRESETS = {
+  prime:   { name:'Charlotte Vance',age:45,employment_type:'Salaried',annual_income:135000,employment_years:14,credit_history_length:19,num_credit_accounts:9,debt_to_income_ratio:0.16,existing_loans:0,num_delinquencies:0,payment_history_score:97,loan_amount:35000,loan_purpose:'Home',tenure:60 },
+  subprime:{ name:'Tyler Finch',age:24,employment_type:'Self-Employed',annual_income:38000,employment_years:1,credit_history_length:2,num_credit_accounts:5,debt_to_income_ratio:0.58,existing_loans:3,num_delinquencies:4,payment_history_score:55,loan_amount:20000,loan_purpose:'Personal',tenure:36 },
+  mixed:   { name:'Jordan Hayes',age:33,employment_type:'Freelancer',annual_income:72000,employment_years:5,credit_history_length:8,num_credit_accounts:6,debt_to_income_ratio:0.32,existing_loans:1,num_delinquencies:1,payment_history_score:83,loan_amount:18000,loan_purpose:'Auto',tenure:48 }
+};
+
+function applyPreset(key){
+  const p=PRESETS[key];
+  for(const [k,v] of Object.entries(p)){
+    const el=document.getElementById('f-'+k);
+    if(el) el.value=v;
+  }
+  goStep(1);
+}
+
+let currentStep=1;
+
+function goStep(n){
+  for(let i=1;i<=3;i++){
+    document.getElementById('step-'+i).classList.toggle('active',i===n);
+    const ind=document.getElementById('step-ind-'+i);
+    ind.style.color = i===n?'var(--accent)':'var(--muted)';
+    ind.style.fontWeight = i===n?'700':'400';
+  }
+  document.getElementById('progress').style.width=(n/3*100)+'%';
+  document.getElementById('btn-back').disabled = n===1;
+  document.getElementById('btn-next').style.display = n<3?'':'none';
+  document.getElementById('btn-submit').style.display = n===3?'':'none';
+  currentStep=n;
+}
+
+function nextStep(){ if(currentStep<3) goStep(currentStep+1); }
+function prevStep(){ if(currentStep>1) goStep(currentStep-1); }
+
+document.getElementById('app-form').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const errEl=document.getElementById('form-error');
+  const btn=document.getElementById('btn-submit');
+  errEl.style.display='none'; btn.disabled=true; btn.textContent='Evaluating…';
+
+  const payload={
+    name:               document.getElementById('f-name').value,
+    age:                +document.getElementById('f-age').value,
+    employment_type:    document.getElementById('f-employment_type').value,
+    annual_income:      +document.getElementById('f-annual_income').value,
+    employment_years:   +document.getElementById('f-employment_years').value,
+    credit_history_length:   +document.getElementById('f-credit_history_length').value,
+    debt_to_income_ratio:    +document.getElementById('f-debt_to_income_ratio').value,
+    existing_loans:          +document.getElementById('f-existing_loans').value,
+    num_delinquencies:       +document.getElementById('f-num_delinquencies').value,
+    payment_history_score:   +document.getElementById('f-payment_history_score').value,
+    num_credit_accounts:     +document.getElementById('f-num_credit_accounts').value,
+    loan_amount:   +document.getElementById('f-loan_amount').value,
+    loan_purpose:  document.getElementById('f-loan_purpose').value,
+    tenure:        +document.getElementById('f-tenure').value,
+  };
+
+  try{
+    const res = await apiFetch('/api/applications',{
+      method:'POST', body:JSON.stringify(payload)
+    });
+    if(!res) return;
+    const data = await res.json();
+    if(!res.ok) throw new Error(Array.isArray(data.detail)?data.detail.map(d=>d.msg).join('. '):(data.detail||'Submission failed'));
+    window.location.href='/applications/'+data.id;
+  } catch(ex){
+    errEl.textContent=ex.message; errEl.style.display='block';
+    btn.disabled=false; btn.textContent='✦ Submit for Score';
+  }
+});
+
+// Load prime preset by default
+applyPreset('prime');
+</script>
+{% endblock %}

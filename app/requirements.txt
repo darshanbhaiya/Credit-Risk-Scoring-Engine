@@ -1,0 +1,26 @@
+# Web framework
+flask
+python-dotenv
+flask-cors
+
+# PostgreSQL driver
+psycopg2-binary
+
+# JWT authentication
+PyJWT
+
+# Password hashing
+bcrypt
+
+# Data validation
+pydantic[email]
+
+# ML / scoring pipeline
+numpy
+pandas
+scikit-learn
+xgboost
+joblib
+
+# Optional — SHAP feature attributions
+# shap

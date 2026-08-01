@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — RiskEngine{% endblock %}
+
+{% block head %}
+<style>
+.chart-panel-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
+.chart-panel-header h3{font-size:15px;font-weight:700;color:#0f172a;margin:0}
+.chart-panel-header p{font-size:12px;color:#64748b;margin:4px 0 0}
+.chart-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:#eff6ff;color:#2563eb}
+.chart-3{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:20px;margin-bottom:28px}
+.donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-40%);text-align:center;pointer-events:none}
+.donut-center strong{display:block;font-family:'Outfit',sans-serif;font-size:26px;font-weight:800;color:#0f172a;line-height:1}
+.donut-center span{font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.donut-wrap{position:relative}
+.legend-list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.legend-item{display:flex;align-items:center;justify-content:space-between;font-size:13px}
+.legend-dot{display:inline-flex;align-items:center;gap:8px;color:#475569;font-weight:500}
+.legend-dot i{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.legend-pct{font-family:'Outfit',sans-serif;font-weight:700;color:#0f172a;font-size:14px}
+.score-band-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:4px}
+.score-band{border-radius:10px;padding:12px 14px;text-align:center}
+.score-band .sb-range{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.score-band .sb-val{font-family:'Outfit',sans-serif;font-size:22px;font-weight:800;line-height:1}
+.score-band .sb-lbl{font-size:11px;color:#64748b;margin-top:2px}
+@media(max-width:960px){.chart-3{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <p>Portfolio credit health, decision logs, and real-time risk distribution.</p>
+</div>
+
+<!-- KPI Cards -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-icon" style="background:#eff6ff">
+      <svg width="20" height="20" fill="none" stroke="#2563eb" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/></svg>
+    </div>
+    <div><div class="kpi-label">Total Applications</div><div class="kpi-value" id="k-total">—</div></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon" style="background:#f0fdf4">
+      <svg width="20" height="20" fill="none" stroke="#16a34a" stroke-width="2" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg>
+    </div>
+    <div><div class="kpi-label">Approved</div><div class="kpi-value" id="k-approved">—</div></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon" style="background:#fef2f2">
+      <svg width="20" height="20" fill="none" stroke="#dc2626" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </div>
+    <div><div class="kpi-label">Rejected</div><div class="kpi-value" id="k-rejected">—</div></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon" style="background:#fffbeb">
+      <svg width="20" height="20" fill="none" stroke="#d97706" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </div>
+    <div><div class="kpi-label">Under Review</div><div class="kpi-value" id="k-review">—</div></div>
+  </div>
+</div>
+
+<!-- Score bands summary -->
+<div class="panel" style="margin-bottom:28px">
+  <div class="chart-panel-header">
+    <div><h3>Score Distribution</h3><p>Applicants grouped by credit score band</p></div>
+  </div>
+  <div class="score-band-grid">
+    <div class="score-band" style="background:#fef2f2">
+      <div class="sb-range" style="color:#dc2626">300 – 579</div>
+      <div class="sb-val" style="color:#dc2626" id="band-poor">—</div>
+      <div class="sb-lbl">Poor</div>
+    </div>
+    <div class="score-band" style="background:#fffbeb">
+      <div class="sb-range" style="color:#d97706">580 – 669</div>
+      <div class="sb-val" style="color:#d97706" id="band-fair">—</div>
+      <div class="sb-lbl">Fair</div>
+    </div>
+    <div class="score-band" style="background:#eff6ff">
+      <div class="sb-range" style="color:#2563eb">670 – 739</div>
+      <div class="sb-val" style="color:#2563eb" id="band-good">—</div>
+      <div class="sb-lbl">Good</div>
+    </div>
+    <div class="score-band" style="background:#f0fdf4">
+      <div class="sb-range" style="color:#16a34a">740 – 850</div>
+      <div class="sb-val" style="color:#16a34a" id="band-excellent">—</div>
+      <div class="sb-lbl">Excellent</div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="chart-3">
+
+  <!-- Area chart — Score Trend -->
+  <div class="panel">
+    <div class="chart-panel-header">
+      <div>
+        <h3>Credit Score Trend</h3>
+        <p>Score progression across submitted applications</p>
+      </div>
+      <span class="chart-badge">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="#2563eb"><circle cx="5" cy="5" r="5"/></svg>
+        Live
+      </span>
+    </div>
+    <canvas id="chart-trend" height="220"></canvas>
+  </div>
+
+  <!-- Donut — Risk Distribution -->
+  <div class="panel">
+    <div class="chart-panel-header">
+      <div><h3>Risk Distribution</h3><p>Portfolio breakdown by risk class</p></div>
+    </div>
+    <div class="donut-wrap">
+      <canvas id="chart-risk" height="190"></canvas>
+      <div class="donut-center">
+        <strong id="donut-total">0</strong>
+        <span>Total</span>
+      </div>
+    </div>
+    <div class="legend-list">
+      <div class="legend-item">
+        <span class="legend-dot"><i style="background:#16a34a"></i>Low Risk</span>
+        <span class="legend-pct" id="leg-low">—</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"><i style="background:#d97706"></i>Medium Risk</span>
+        <span class="legend-pct" id="leg-med">—</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"><i style="background:#dc2626"></i>High Risk</span>
+        <span class="legend-pct" id="leg-high">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bar chart — Decision breakdown -->
+  <div class="panel">
+    <div class="chart-panel-header">
+      <div><h3>Decisions</h3><p>Outcome breakdown by count</p></div>
+    </div>
+    <canvas id="chart-decisions" height="190"></canvas>
+    <div class="legend-list" style="margin-top:12px">
+      <div class="legend-item">
+        <span class="legend-dot"><i style="background:#16a34a"></i>Approved</span>
+        <span class="legend-pct" id="leg-approved">—</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"><i style="background:#dc2626"></i>Rejected</span>
+        <span class="legend-pct" id="leg-rejected">—</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"><i style="background:#d97706"></i>Review</span>
+        <span class="legend-pct" id="leg-review">—</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Recent applications table -->
+<div class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <div>
+      <h3 style="font-size:15px;font-weight:700;margin:0">Recent Applications</h3>
+      <p style="font-size:12px;color:#64748b;margin:3px 0 0">Latest 6 submissions</p>
+    </div>
+    <a href="/applications" class="btn btn-ghost btn-sm">View all &rarr;</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Applicant</th><th>Risk Score</th><th>Risk Class</th><th>Decision</th><th>Date</th>
+      </tr></thead>
+      <tbody id="recent-tbody">
+        <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
+Chart.defaults.color = '#64748b';
+Chart.defaults.borderColor = '#f1f5f9';
+
+let trendChart, riskChart, decisionsChart;
+
+function badgeCls(rc){ return rc==='LOW'?'badge-low':rc==='HIGH'?'badge-high':'badge-medium'; }
+function statusCls(s){ return s==='APPROVED'?'status-approved':s==='REJECTED'?'status-rejected':'status-review'; }
+function fmtDate(d){ return new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function pct(n,t){ return t===0?'0':Math.round(n/t*100)+'%'; }
+
+async function loadDashboard(){
+  const res = await apiFetch('/api/applications');
+  if(!res) return;
+  const items = await res.json();
+  const total = items.length;
+
+  // ── KPIs ────────────────────────────────────────────────────────
+  const approved = items.filter(x=>x.status==='APPROVED').length;
+  const rejected = items.filter(x=>x.status==='REJECTED').length;
+  const review   = items.filter(x=>x.status==='MANUAL REVIEW').length;
+  const low      = items.filter(x=>x.score_result.risk_class==='LOW').length;
+  const medium   = items.filter(x=>x.score_result.risk_class==='MEDIUM').length;
+  const high     = items.filter(x=>x.score_result.risk_class==='HIGH').length;
+
+  document.getElementById('k-total').textContent    = total;
+  document.getElementById('k-approved').textContent = approved;
+  document.getElementById('k-rejected').textContent = rejected;
+  document.getElementById('k-review').textContent   = review;
+
+  // ── Score bands ──────────────────────────────────────────────────
+  const scores = items.map(x=>x.score_result.risk_score);
+  document.getElementById('band-poor').textContent      = scores.filter(s=>s<580).length;
+  document.getElementById('band-fair').textContent      = scores.filter(s=>s>=580&&s<670).length;
+  document.getElementById('band-good').textContent      = scores.filter(s=>s>=670&&s<740).length;
+  document.getElementById('band-excellent').textContent = scores.filter(s=>s>=740).length;
+
+  // ── Legend values ────────────────────────────────────────────────
+  document.getElementById('leg-low').textContent      = low +' ('+pct(low,total)+')';
+  document.getElementById('leg-med').textContent      = medium+' ('+pct(medium,total)+')';
+  document.getElementById('leg-high').textContent     = high+' ('+pct(high,total)+')';
+  document.getElementById('leg-approved').textContent = approved+' ('+pct(approved,total)+')';
+  document.getElementById('leg-rejected').textContent = rejected+' ('+pct(rejected,total)+')';
+  document.getElementById('leg-review').textContent   = review+' ('+pct(review,total)+')';
+  document.getElementById('donut-total').textContent  = total;
+
+  // ── Trend area chart ─────────────────────────────────────────────
+  const reversed = [...items].reverse();
+  const tLabels  = reversed.map((_,i)=>'#'+(i+1));
+  const tScores  = reversed.map(x=>x.score_result.risk_score);
+
+  if(trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('chart-trend'), {
+    type: 'line',
+    data: {
+      labels: tLabels,
+      datasets: [{
+        label: 'Credit Score',
+        data: tScores,
+        borderColor: '#2563eb',
+        borderWidth: 2.5,
+        backgroundColor: (ctx) => {
+          const chart = ctx.chart;
+          const {ctx: c, chartArea} = chart;
+          if(!chartArea) return 'transparent';
+          const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          gradient.addColorStop(0, 'rgba(37,99,235,0.18)');
+          gradient.addColorStop(1, 'rgba(37,99,235,0)');
+          return gradient;
+        },
+        fill: true,
+        tension: 0.45,
+        pointRadius: 4,
+        pointBackgroundColor: '#fff',
+        pointBorderColor: '#2563eb',
+        pointBorderWidth: 2,
+        pointHoverRadius: 6,
+        pointHoverBackgroundColor: '#2563eb',
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      animation: { duration: 800, easing: 'easeInOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          titleColor: '#94a3b8',
+          bodyColor: '#f8fafc',
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: (items) => 'Application ' + items[0].label,
+            label: (item) => 'Score: ' + item.raw,
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { maxTicksLimit: 8, font: { size: 11 } }
+        },
+        y: {
+          min: 300,
+          max: 850,
+          grid: { color: '#f1f5f9', drawBorder: false },
+          border: { display: false },
+          ticks: {
+            font: { size: 11 },
+            callback: (v) => v,
+            stepSize: 100,
+          }
+        }
+      }
+    }
+  });
+
+  // ── Donut chart ──────────────────────────────────────────────────
+  if(riskChart) riskChart.destroy();
+  riskChart = new Chart(document.getElementById('chart-risk'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Low', 'Medium', 'High'],
+      datasets: [{
+        data: [low, medium, high],
+        backgroundColor: ['#16a34a', '#d97706', '#dc2626'],
+        borderColor: '#ffffff',
+        borderWidth: 3,
+        hoverOffset: 8,
+        hoverBorderWidth: 4,
+      }]
+    },
+    options: {
+      cutout: '70%',
+      responsive: true,
+      animation: { animateRotate: true, duration: 900, easing: 'easeInOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          titleColor: '#94a3b8',
+          bodyColor: '#f8fafc',
+          padding: 12,
+          cornerRadius: 8,
+          callbacks: {
+            label: (item) => ` ${item.label}: ${item.raw} (${pct(item.raw, total)})`
+          }
+        }
+      }
+    }
+  });
+
+  // ── Bar chart — decisions ────────────────────────────────────────
+  if(decisionsChart) decisionsChart.destroy();
+  decisionsChart = new Chart(document.getElementById('chart-decisions'), {
+    type: 'bar',
+    data: {
+      labels: ['Approved', 'Rejected', 'Review'],
+      datasets: [{
+        data: [approved, rejected, review],
+        backgroundColor: ['rgba(22,163,74,0.15)', 'rgba(220,38,38,0.15)', 'rgba(217,119,6,0.15)'],
+        borderColor: ['#16a34a', '#dc2626', '#d97706'],
+        borderWidth: 2,
+        borderRadius: 8,
+        borderSkipped: false,
+        hoverBackgroundColor: ['rgba(22,163,74,0.25)', 'rgba(220,38,38,0.25)', 'rgba(217,119,6,0.25)'],
+      }]
+    },
+    options: {
+      responsive: true,
+      animation: { duration: 800, easing: 'easeInOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          titleColor: '#94a3b8',
+          bodyColor: '#f8fafc',
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            label: (item) => `${item.label}: ${item.raw} applications`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { size: 11 } }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: '#f1f5f9' },
+          border: { display: false },
+          ticks: {
+            stepSize: 1,
+            font: { size: 11 },
+            callback: (v) => Number.isInteger(v) ? v : null
+          }
+        }
+      }
+    }
+  });
+
+  // ── Recent table ─────────────────────────────────────────────────
+  const tbody = document.getElementById('recent-tbody');
+  if(items.length===0){
+    tbody.innerHTML='<tr><td colspan="5" class="empty-state">No applications yet. <a href="/applications/new" style="color:var(--accent)">Submit one →</a></td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.slice(0,6).map(x=>`
+    <tr>
+      <td style="font-weight:600"><a href="/applications/${x.id}" style="color:#0f172a">${x.applicant_data.name}</a></td>
+      <td style="font-family:'Outfit',sans-serif;font-weight:800;font-size:17px;color:#0f172a">${x.score_result.risk_score}</td>
+      <td><span class="badge ${badgeCls(x.score_result.risk_class)}">${x.score_result.risk_class}</span></td>
+      <td><span class="${statusCls(x.status)}">${x.status}</span></td>
+      <td style="color:var(--muted)">${fmtDate(x.created_at)}</td>
+    </tr>`).join('');
+}
+loadDashboard();
+</script>
+{% endblock %}

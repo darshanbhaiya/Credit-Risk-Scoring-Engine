@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}Applications — RiskEngine{% endblock %}
+
+{% block head %}
+<style>
+.override-btn{padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:#fffbeb;border:1px solid #d97706;color:#d97706;cursor:pointer;transition:all .15s}
+.override-btn:hover{background:#d97706;color:#fff}
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;place-items:center}
+.modal-backdrop.open{display:grid}
+.modal{background:#fff;border-radius:20px;padding:32px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,0.15)}
+.modal h3{font-size:17px;font-weight:800;margin-bottom:6px}
+.modal p{font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.modal-meta{background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:13px;display:grid;gap:6px}
+.modal-meta span{color:var(--muted)}
+.modal-meta strong{color:var(--text)}
+.modal-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.btn-approve{background:#16a34a;color:#fff;border-radius:10px;padding:0 20px;min-height:42px;font-weight:700;font-size:14px;border:0;cursor:pointer;transition:all .2s}
+.btn-approve:hover{background:#15803d}
+.btn-reject{background:#dc2626;color:#fff;border-radius:10px;padding:0 20px;min-height:42px;font-weight:700;font-size:14px;border:0;cursor:pointer;transition:all .2s}
+.btn-reject:hover{background:#b91c1c}
+.btn-cancel{background:transparent;border:1px solid var(--border);border-radius:10px;padding:0 20px;min-height:42px;font-weight:600;font-size:14px;color:var(--muted);cursor:pointer}
+.btn-cancel:hover{border-color:var(--text);color:var(--text)}
+.override-error{color:var(--bad);font-size:13px;margin-top:10px;display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px}
+.override-success{color:#15803d;font-size:13px;margin-top:10px;display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header-row">
+  <div>
+    <h1>Evaluation Logs</h1>
+    <p>Audit evaluation history, filter by risk classification, and explore decision summaries.</p>
+  </div>
+  <div style="display:flex;gap:10px" id="analyst-actions" style="display:none">
+    <a href="/api/applications/export" class="btn btn-ghost btn-sm" id="export-btn">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export CSV
+    </a>
+  </div>
+</div>
+
+<div class="table-tools">
+  <div class="search-wrap">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="search-input" placeholder="Search applicant name…" oninput="filterTable()"/>
+  </div>
+  <select id="risk-filter" onchange="filterTable()" style="width:180px">
+    <option value="ALL">All Risk Classes</option>
+    <option value="LOW">Low Risk</option>
+    <option value="MEDIUM">Medium Risk</option>
+    <option value="HIGH">High Risk</option>
+  </select>
+  <select id="status-filter" onchange="filterTable()" style="width:180px">
+    <option value="ALL">All Decisions</option>
+    <option value="APPROVED">Approved</option>
+    <option value="REJECTED">Rejected</option>
+    <option value="MANUAL REVIEW">Manual Review</option>
+  </select>
+</div>
+
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Applicant</th>
+        <th>Decision</th>
+        <th>Risk Class</th>
+        <th>Score</th>
+        <th>Date</th>
+        <th id="override-col" style="display:none">Action</th>
+      </tr></thead>
+      <tbody id="apps-tbody">
+        <tr><td colspan="6" class="empty-state">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Analyst Override Modal ── -->
+<div class="modal-backdrop" id="override-modal">
+  <div class="modal">
+    <h3>Override Decision</h3>
+    <p>
+      This permanently changes the application status and writes an immutable
+      entry to the audit trail with your identity and note.
+    </p>
+
+    <!-- Application summary shown in modal -->
+    <div class="modal-meta" id="override-meta">
+      <div><span>Application ID: </span><strong id="om-id">—</strong></div>
+      <div><span>Applicant: </span><strong id="om-name">—</strong></div>
+      <div><span>Current Status: </span><strong id="om-status">—</strong></div>
+      <div><span>Risk Score: </span><strong id="om-score">—</strong></div>
+      <div><span>Risk Class: </span><strong id="om-class">—</strong></div>
+    </div>
+
+    <label style="display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)">
+      Analyst Note <span style="font-weight:400">(required — will be recorded in audit trail)</span>
+      <textarea
+        id="override-note"
+        rows="3"
+        placeholder="Explain the reason for this override, e.g. 'Verified income documentation. Salary slips confirmed. Approving manually.'"
+        style="padding:12px 14px;resize:vertical;min-height:90px;border-radius:10px;border:1px solid var(--border);font-size:13px"
+      ></textarea>
+    </label>
+
+    <div class="modal-actions">
+      <button class="btn-approve" id="override-approve">✓ Approve</button>
+      <button class="btn-reject"  id="override-reject">✗ Reject</button>
+      <button class="btn-cancel"  id="override-cancel">Cancel</button>
+    </div>
+    <div class="override-error"   id="override-error"></div>
+    <div class="override-success" id="override-success"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allItems = [];
+let currentUser = null;
+let pendingAppId = null;
+
+function badgeCls(rc){ return rc==='LOW'?'badge-low':rc==='HIGH'?'badge-high':'badge-medium'; }
+function statusCls(s){ return s==='APPROVED'?'status-approved':s==='REJECTED'?'status-rejected':'status-review'; }
+function fmtDate(d){ return new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+
+// ── Render table ─────────────────────────────────────────────────────────────
+function renderTable(items) {
+  const tbody   = document.getElementById('apps-tbody');
+  const isPriv  = currentUser && (currentUser.role === 'admin' || currentUser.role === 'analyst');
+
+  if (items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${isPriv?6:5}" class="empty-state">No applications match the filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = items.map(x => {
+    const canOverride = isPriv && x.status === 'MANUAL REVIEW';
+    const overrideBtn = canOverride
+      ? `<button class="override-btn" onclick="openOverride(${x.id}, '${x.applicant_data.name}', '${x.status}', ${x.score_result.risk_score}, '${x.score_result.risk_class}')">Override</button>`
+      : (isPriv ? '<span style="color:var(--muted);font-size:12px">—</span>' : '');
+
+    return `<tr>
+      <td style="font-weight:600">
+        <a href="/applications/${x.id}" style="color:#0f172a">${x.applicant_data.name}</a>
+      </td>
+      <td><span class="${statusCls(x.status)}">${x.status}</span></td>
+      <td><span class="badge ${badgeCls(x.score_result.risk_class)}">${x.score_result.risk_class}</span></td>
+      <td style="font-family:'Outfit',sans-serif;font-weight:700;font-size:16px">${x.score_result.risk_score}</td>
+      <td style="color:var(--muted)">${fmtDate(x.created_at)}</td>
+      ${isPriv ? `<td>${overrideBtn}</td>` : ''}
+    </tr>`;
+  }).join('');
+}
+
+function filterTable() {
+  const q  = document.getElementById('search-input').value.toLowerCase();
+  const rc = document.getElementById('risk-filter').value;
+  const st = document.getElementById('status-filter').value;
+  renderTable(allItems.filter(x =>
+    x.applicant_data.name.toLowerCase().includes(q) &&
+    (rc === 'ALL' || x.score_result.risk_class === rc) &&
+    (st === 'ALL' || x.status === st)
+  ));
+}
+
+// ── Load applications ────────────────────────────────────────────────────────
+async function loadApps() {
+  // Get current user role first
+  const meRes = await apiFetch('/api/auth/me');
+  if (meRes && meRes.ok) {
+    currentUser = await meRes.json();
+    const isPriv = currentUser.role === 'admin' || currentUser.role === 'analyst';
+    if (isPriv) {
+      document.getElementById('override-col').style.display = '';
+      document.getElementById('analyst-actions').style.display = 'flex';
+      // Wire CSV export with auth header (fetch + blob download)
+      document.getElementById('export-btn').addEventListener('click', async e => {
+        e.preventDefault();
+        const res = await apiFetch('/api/applications/export');
+        if (!res || !res.ok) return;
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = 'applications.csv'; a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+  }
+
+  const res = await apiFetch('/api/applications');
+  if (!res) return;
+  allItems = await res.json();
+  filterTable();
+}
+
+// ── Override modal ────────────────────────────────────────────────────────────
+function openOverride(id, name, status, score, riskClass) {
+  pendingAppId = id;
+  document.getElementById('om-id').textContent     = '#' + id;
+  document.getElementById('om-name').textContent   = name;
+  document.getElementById('om-status').textContent = status;
+  document.getElementById('om-score').textContent  = score;
+  document.getElementById('om-class').textContent  = riskClass;
+  document.getElementById('override-note').value   = '';
+  document.getElementById('override-error').style.display   = 'none';
+  document.getElementById('override-success').style.display = 'none';
+  document.getElementById('override-modal').classList.add('open');
+}
+
+document.getElementById('override-cancel').addEventListener('click', () => {
+  document.getElementById('override-modal').classList.remove('open');
+});
+
+document.getElementById('override-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('override-modal'))
+    document.getElementById('override-modal').classList.remove('open');
+});
+
+async function submitOverride(newStatus) {
+  const note   = document.getElementById('override-note').value.trim();
+  const errEl  = document.getElementById('override-error');
+  const okEl   = document.getElementById('override-success');
+
+  errEl.style.display = 'none';
+  okEl.style.display  = 'none';
+
+  if (note.length < 5) {
+    errEl.textContent = 'Please write a note explaining your decision (min 5 characters).';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const approveBtn = document.getElementById('override-approve');
+  const rejectBtn  = document.getElementById('override-reject');
+  approveBtn.disabled = rejectBtn.disabled = true;
+
+  const res = await apiFetch(`/api/features/override/${pendingAppId}`, {
+    method:  'PATCH',
+    body:    JSON.stringify({ new_status: newStatus, note }),
+  });
+
+  approveBtn.disabled = rejectBtn.disabled = false;
+
+  if (!res) return;
+
+  if (!res.ok) {
+    const err = await res.json();
+    errEl.textContent   = err.detail || 'Override failed. Check your role permissions.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const data = await res.json();
+  okEl.textContent   = `✓ Application #${data.id} overridden to ${data.new_status} by ${data.updated_by}. Audit trail updated.`;
+  okEl.style.display = 'block';
+
+  // Update the local data so the table re-renders with new status
+  const app = allItems.find(x => x.id === pendingAppId);
+  if (app) app.status = data.new_status;
+
+  setTimeout(() => {
+    document.getElementById('override-modal').classList.remove('open');
+    filterTable();
+  }, 1800);
+}
+
+document.getElementById('override-approve').addEventListener('click', () => submitOverride('APPROVED'));
+document.getElementById('override-reject').addEventListener('click',  () => submitOverride('REJECTED'));
+
+loadApps();
+</script>
+{% endblock %}

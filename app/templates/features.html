@@ -1,0 +1,806 @@
+{% extends "base.html" %}
+{% block title %}Risk Analytics — RiskEngine{% endblock %}
+
+{% block head %}
+<style>
+/* ── Tab navigation ── */
+.tab-nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:28px;background:#f1f5f9;border-radius:12px;padding:5px}
+.tab-btn{flex:1;min-width:120px;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);background:transparent;border:0;cursor:pointer;transition:all .2s;white-space:nowrap;text-align:center}
+.tab-btn.active{background:#fff;color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,0.10)}
+.tab-btn:hover:not(.active){color:var(--text)}
+
+/* ── Tab panels ── */
+.tab-panel{display:none}
+.tab-panel.active{display:block;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── Metric cards ── */
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.metric-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.metric-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px}
+.metric-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:20px 22px}
+.mc-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
+.mc-value{font-family:'Outfit',sans-serif;font-size:28px;font-weight:800;color:var(--text);line-height:1}
+.mc-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.mc-good{color:var(--ok)}
+.mc-warn{color:var(--warn)}
+.mc-bad{color:var(--bad)}
+
+/* ── Risk level badges ── */
+.rl-critical{background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase}
+.rl-high    {background:#fef9c3;color:#a16207;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase}
+.rl-medium  {background:#eff6ff;color:#2563eb;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase}
+.rl-low     {background:#f0fdf4;color:#16a34a;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase}
+
+/* ── Scenario selector ── */
+.scenario-bar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.sc-btn{padding:9px 20px;border-radius:10px;font-size:13px;font-weight:600;border:2px solid var(--border);background:#fff;cursor:pointer;transition:all .2s;color:var(--muted)}
+.sc-btn:hover{border-color:var(--accent);color:var(--accent)}
+.sc-btn.active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.sc-btn.moderate.active{border-color:var(--warn);background:var(--warn-bg);color:var(--warn)}
+.sc-btn.severe.active{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+
+/* ── CAR gauge ── */
+.car-bar-wrap{margin-top:12px}
+.car-bar-track{height:14px;background:#f1f5f9;border-radius:8px;overflow:hidden;position:relative}
+.car-bar-fill{height:100%;border-radius:8px;transition:width .8s ease}
+.car-thresholds{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px}
+
+/* ── Model comparison ── */
+.model-cards{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+.model-card{border-radius:14px;padding:22px;border:2px solid}
+.model-card.champion{border-color:#2563eb;background:#eff6ff}
+.model-card.challenger{border-color:#7c3aed;background:#f5f3ff}
+.model-tag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+.model-tag.c1{color:#2563eb}
+.model-tag.c2{color:#7c3aed}
+.model-stat{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);font-size:13px}
+.model-stat:last-child{border-bottom:0}
+.model-stat .ms-label{color:var(--muted);font-weight:500}
+.model-stat .ms-val{font-weight:700;font-family:'Outfit',sans-serif;font-size:14px}
+.rec-card{border-radius:12px;padding:16px 20px;margin-top:4px;font-size:13px;border:1px solid}
+.rec-promote{background:#f0fdf4;border-color:#16a34a;color:#15803d}
+.rec-wait   {background:#fffbeb;border-color:#d97706;color:#92400e}
+.rec-keep   {background:#eff6ff;border-color:#2563eb;color:#1e40af}
+
+/* ── Override modal ── */
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;place-items:center}
+.modal-backdrop.open{display:grid}
+.modal{background:#fff;border-radius:20px;padding:32px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,0.15)}
+.modal h3{font-size:17px;margin-bottom:6px}
+.modal p{font-size:13px;color:var(--muted);margin-bottom:20px}
+.modal-actions{display:flex;gap:10px;margin-top:20px}
+.btn-approve{background:var(--ok);color:#fff;border-radius:10px;padding:0 20px;min-height:42px;font-weight:700;font-size:14px}
+.btn-reject {background:var(--bad);color:#fff;border-radius:10px;padding:0 20px;min-height:42px;font-weight:700;font-size:14px}
+.btn-cancel {background:transparent;border:1px solid var(--border);border-radius:10px;padding:0 20px;min-height:42px;font-weight:600;font-size:14px;color:var(--muted)}
+
+/* ── Table utilities ── */
+.flip-yes{color:var(--bad);font-weight:700}
+.flip-no {color:var(--muted)}
+.note-box{background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.section-title{font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text)}
+.export-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+
+@media(max-width:960px){
+  .metric-grid,.metric-grid-3{grid-template-columns:1fr 1fr}
+  .model-cards{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .metric-grid,.metric-grid-3,.metric-grid-2{grid-template-columns:1fr}
+  .tab-btn{font-size:11px;padding:8px 8px}
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Risk Analytics</h1>
+  <p>Enterprise-grade credit risk features — SR 11-7, CCAR, Basel III, and fraud detection.</p>
+</div>
+
+<!-- ── Tab navigation ── -->
+<div class="tab-nav" id="tab-nav">
+  <button class="tab-btn active" data-tab="model-validation">Model Validation</button>
+  <button class="tab-btn" data-tab="stress-test">Stress Testing</button>
+  <button class="tab-btn" data-tab="expected-loss">Expected Loss</button>
+  <button class="tab-btn" data-tab="audit-log">Audit Trail</button>
+  <button class="tab-btn" data-tab="champion">Champion/Challenger</button>
+  <button class="tab-btn" data-tab="basel">Basel III Capital</button>
+  <button class="tab-btn" data-tab="fraud">Fraud Velocity</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 1 — MODEL VALIDATION (SR 11-7)
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="tab-model-validation">
+  <div class="note-box">
+    <strong>SR 11-7 Model Validation</strong> — Metrics computed from live score distributions as proxies.
+    In production, use a labelled holdout set with ground-truth default outcomes.
+  </div>
+  <div class="metric-grid" id="mv-metrics">
+    <div class="metric-card"><div class="mc-label">AUC-ROC</div><div class="mc-value" id="mv-auc">—</div><div class="mc-sub" id="mv-auc-label">Loading…</div></div>
+    <div class="metric-card"><div class="mc-label">Gini Coefficient</div><div class="mc-value" id="mv-gini">—</div><div class="mc-sub">= 2 × AUC − 1</div></div>
+    <div class="metric-card"><div class="mc-label">KS Statistic</div><div class="mc-value" id="mv-ks">—</div><div class="mc-sub">Good/Bad separation</div></div>
+    <div class="metric-card"><div class="mc-label">PSI</div><div class="mc-value" id="mv-psi">—</div><div class="mc-sub" id="mv-psi-label">Population Stability</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:20px">
+    <div class="panel">
+      <div class="section-title">Score Distribution</div>
+      <canvas id="chart-mv-dist" height="220"></canvas>
+    </div>
+    <div class="panel">
+      <div class="section-title">Risk Class Breakdown</div>
+      <canvas id="chart-mv-risk" height="220"></canvas>
+      <div id="mv-class-legend" style="margin-top:14px;display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 2 — STRESS TESTING (CCAR / DFAST)
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-stress-test">
+  <div class="note-box">
+    <strong>CCAR / DFAST Stress Testing</strong> — Applies macroeconomic severity multipliers to risk
+    scores and recalculates decisions. Estimates Expected Loss increase under each scenario.
+  </div>
+  <div class="scenario-bar">
+    <button class="sc-btn mild active"     data-scenario="mild">Mild Stress</button>
+    <button class="sc-btn moderate"        data-scenario="moderate">Moderate Stress</button>
+    <button class="sc-btn severe"          data-scenario="severe">Severe (CCAR)</button>
+    <button class="btn btn-primary btn-sm" id="st-run" style="margin-left:auto">Run Scenario</button>
+  </div>
+
+  <!-- Scenario parameters display -->
+  <div class="panel" style="margin-bottom:20px" id="st-scenario-info">
+    <div class="metric-grid-3" id="st-params">
+      <div class="metric-card"><div class="mc-label">Unemployment Shock</div><div class="mc-value" id="st-unemp">+2.0 pp</div></div>
+      <div class="metric-card"><div class="mc-label">GDP Contraction</div><div class="mc-value" id="st-gdp">−1.5%</div></div>
+      <div class="metric-card"><div class="mc-label">Rate Shock</div><div class="mc-value" id="st-rate">+100 bps</div></div>
+    </div>
+  </div>
+
+  <!-- Results (hidden until run) -->
+  <div id="st-results" style="display:none">
+    <div class="metric-grid" style="margin-bottom:20px">
+      <div class="metric-card"><div class="mc-label">Approvals Lost</div><div class="mc-value mc-bad" id="st-lost">—</div><div class="mc-sub">Flipped to Rejected</div></div>
+      <div class="metric-card"><div class="mc-label">Exposure at Risk</div><div class="mc-value mc-warn" id="st-exp">—</div><div class="mc-sub">Loan amount of flipped apps</div></div>
+      <div class="metric-card"><div class="mc-label">EL Increase</div><div class="mc-value mc-bad" id="st-el-inc">—</div><div class="mc-sub">Stressed vs Baseline EL</div></div>
+      <div class="metric-card"><div class="mc-label">Stressed Approvals</div><div class="mc-value" id="st-appr">—</div><div class="mc-sub" id="st-appr-sub">vs baseline</div></div>
+    </div>
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div class="section-title" style="margin:0">Application-level Results</div>
+        <span style="font-size:12px;color:var(--muted)">Showing first 50</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Name</th>
+            <th>Original Score</th><th>Stressed Score</th>
+            <th>Original Decision</th><th>Stressed Decision</th>
+            <th>Flipped</th><th>Loan Amount</th>
+          </tr></thead>
+          <tbody id="st-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 3 — EXPECTED LOSS
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-expected-loss">
+  <div class="note-box">
+    <strong>EL = PD × LGD × EAD</strong> — LGD fixed at 45% (Basel standard for unsecured retail).
+    PD derived from model risk class and confidence. EAD = loan amount.
+  </div>
+  <div class="metric-grid-3" id="el-summary">
+    <div class="metric-card"><div class="mc-label">Total EAD</div><div class="mc-value" id="el-ead">—</div><div class="mc-sub">Exposure at Default</div></div>
+    <div class="metric-card"><div class="mc-label">Total Expected Loss</div><div class="mc-value mc-bad" id="el-total">—</div><div class="mc-sub" id="el-rate-sub">Portfolio EL rate</div></div>
+    <div class="metric-card"><div class="mc-label">LGD Assumption</div><div class="mc-value">45%</div><div class="mc-sub">Basel unsecured retail</div></div>
+  </div>
+  <div class="panel">
+    <div class="section-title">Top 20 Applications by Expected Loss</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Name</th><th>EAD</th><th>PD</th><th>LGD</th>
+          <th>Expected Loss</th><th>EL %</th><th>Risk Class</th><th>Score</th>
+        </tr></thead>
+        <tbody id="el-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 4 — AUDIT TRAIL
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-audit-log">
+  <div class="note-box">
+    <strong>Immutable Audit Log</strong> — Append-only. No UPDATE or DELETE operations permitted.
+    Compliant with SR 11-7, SOX (Sarbanes-Oxley), and GDPR data processing records.
+  </div>
+  <div class="export-bar">
+    <label style="font-size:13px;font-weight:600;color:var(--muted);display:inline">Filter by event:</label>
+    <select id="al-event-filter" style="width:220px;min-height:38px">
+      <option value="">All Events</option>
+    </select>
+    <button class="btn btn-ghost btn-sm" id="al-refresh">Refresh</button>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Event Type</th><th>User</th><th>App ID</th>
+          <th>IP Address</th><th>Timestamp</th><th>Payload</th>
+        </tr></thead>
+        <tbody id="al-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 5 — CHAMPION / CHALLENGER
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-champion">
+  <div class="note-box">
+    <strong>Champion/Challenger Framework</strong> — Both models shadow-score applications in parallel.
+    Challenger is promoted to champion when it outperforms by Gini Δ > 0.03 and KS Δ > 0.03
+    with ≥ 100 shadow scores. Standard practice at Goldman Sachs Strats and JPMorgan QRCS.
+  </div>
+  <div class="model-cards" id="cc-cards">
+    <!-- filled by JS -->
+  </div>
+  <div id="cc-recommendation"></div>
+  <div class="panel" style="margin-top:20px">
+    <div class="section-title">Promotion Criteria</div>
+    <div class="metric-grid-3">
+      <div class="metric-card"><div class="mc-label">Min Gini Delta</div><div class="mc-value">+0.030</div><div class="mc-sub">Challenger must exceed champion</div></div>
+      <div class="metric-card"><div class="mc-label">Min KS Delta</div><div class="mc-value">+0.030</div><div class="mc-sub">Challenger must exceed champion</div></div>
+      <div class="metric-card"><div class="mc-label">Min Shadow Scores</div><div class="mc-value">100</div><div class="mc-sub">Before comparison is valid</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 6 — BASEL III CAPITAL
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-basel">
+  <div class="note-box">
+    <strong>Basel III IRB Capital Calculations</strong> — RWA = EAD × Risk Weight.
+    Risk weight tiers: PD &lt; 5% → 75%, PD 5–15% → 100%, PD &gt; 15% → 150%.
+    Capital Required = 8% × RWA. Available capital assumed at 12% for CAR calculation.
+  </div>
+  <div class="metric-grid" id="bl-metrics">
+    <div class="metric-card"><div class="mc-label">Total EAD</div><div class="mc-value" id="bl-ead">—</div><div class="mc-sub">Approved portfolio</div></div>
+    <div class="metric-card"><div class="mc-label">Total RWA</div><div class="mc-value" id="bl-rwa">—</div><div class="mc-sub">Risk-Weighted Assets</div></div>
+    <div class="metric-card"><div class="mc-label">Capital Required</div><div class="mc-value mc-warn" id="bl-cap">—</div><div class="mc-sub">8% of RWA (Basel minimum)</div></div>
+    <div class="metric-card">
+      <div class="mc-label">Capital Adequacy Ratio</div>
+      <div class="mc-value" id="bl-car">—</div>
+      <div class="mc-sub" id="bl-car-status">—</div>
+      <div class="car-bar-wrap">
+        <div class="car-bar-track"><div class="car-bar-fill" id="bl-car-bar" style="width:0;background:var(--ok)"></div></div>
+        <div class="car-thresholds"><span>0%</span><span style="margin-left:32%">8% min</span><span style="margin-left:8%">10% well</span><span>20%+</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="section-title">Top 20 Loans by Risk-Weighted Assets</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Name</th><th>EAD</th><th>PD</th>
+          <th>Risk Weight</th><th>RWA</th><th>Capital Required</th>
+          <th>Expected Loss</th><th>Score</th>
+        </tr></thead>
+        <tbody id="bl-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 7 — FRAUD VELOCITY
+══════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-fraud">
+  <div class="note-box">
+    <strong>Fraud Velocity Detection</strong> — User-level: multiple applications in 24h window.
+    IP-level: multiple different users from same IP in 7-day window.
+  </div>
+  <div class="metric-grid" style="margin-bottom:20px" id="fv-summary">
+    <div class="metric-card"><div class="mc-label">Total Applications</div><div class="mc-value" id="fv-total">—</div></div>
+    <div class="metric-card"><div class="mc-label">Critical Flags</div><div class="mc-value mc-bad" id="fv-critical">—</div><div class="mc-sub">≥5 apps, same user</div></div>
+    <div class="metric-card"><div class="mc-label">High Flags</div><div class="mc-value mc-warn" id="fv-high">—</div><div class="mc-sub">User or IP velocity</div></div>
+    <div class="metric-card"><div class="mc-label">Apps (Last 24h)</div><div class="mc-value" id="fv-24h">—</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="panel">
+      <div class="section-title">User Velocity Flags (24h window)</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Email</th><th>Apps</th><th>Window (min)</th><th>Risk</th></tr></thead>
+          <tbody id="fv-user-tbody"></tbody>
+        </table>
+      </div>
+      <div id="fv-user-empty" class="empty-state" style="display:none;padding:24px">
+        No user velocity flags in the last 24 hours.
+      </div>
+    </div>
+    <div class="panel">
+      <div class="section-title">IP Reuse Flags (7-day window)</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>IP Address</th><th>Unique Users</th><th>Total Apps</th><th>Risk</th></tr></thead>
+          <tbody id="fv-ip-tbody"></tbody>
+        </table>
+      </div>
+      <div id="fv-ip-empty" class="empty-state" style="display:none;padding:24px">
+        No IP reuse flags in the last 7 days.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Analyst Override Modal ── -->
+<div class="modal-backdrop" id="override-modal">
+  <div class="modal">
+    <h3>Override Decision</h3>
+    <p>This action will be permanently recorded in the audit trail with your identity and note.</p>
+    <input type="hidden" id="override-app-id"/>
+    <div style="margin-bottom:14px">
+      <label>Application ID <span id="override-app-label" style="color:var(--accent);font-weight:700"></span></label>
+    </div>
+    <label style="margin-bottom:14px">
+      Analyst Note (required)
+      <textarea id="override-note" rows="3" placeholder="Explain the reason for this override…" style="min-height:90px;padding:12px 14px;resize:vertical"></textarea>
+    </label>
+    <div class="modal-actions">
+      <button class="btn-approve" id="override-approve">Approve</button>
+      <button class="btn-reject"  id="override-reject">Reject</button>
+      <button class="btn-cancel"  id="override-cancel">Cancel</button>
+    </div>
+    <div id="override-error" style="color:var(--bad);font-size:13px;margin-top:10px;display:none"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+'use strict';
+Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
+Chart.defaults.color = '#64748b';
+Chart.defaults.borderColor = '#f1f5f9';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const fmt  = n => n == null ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
+const fmtC = n => n == null ? '—' : '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits:0});
+const fmtP = n => n == null ? '—' : Number(n).toFixed(1) + '%';
+const fmtF = n => n == null ? '—' : Number(n).toFixed(4);
+const fmtDate = d => new Date(d).toLocaleString(undefined, {dateStyle:'medium',timeStyle:'short'});
+
+function rlBadge(level) {
+  const m = {'CRITICAL':'rl-critical','HIGH':'rl-high','MEDIUM':'rl-medium','LOW':'rl-low'};
+  return `<span class="${m[level]||'rl-low'}">${level}</span>`;
+}
+function decColor(d) {
+  return d==='APPROVED'?'status-approved':d==='REJECTED'?'status-rejected':'status-review';
+}
+function rcBadge(rc) {
+  return `<span class="badge ${rc==='LOW'?'badge-low':rc==='HIGH'?'badge-high':'badge-medium'}">${rc}</span>`;
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+const tabLoaded = {};
+document.getElementById('tab-nav').addEventListener('click', e => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  const tab = btn.dataset.tab;
+
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+
+  if (!tabLoaded[tab]) {
+    tabLoaded[tab] = true;
+    const loaders = {
+      'model-validation': loadModelValidation,
+      'stress-test':      () => {},            // loaded on Run click
+      'expected-loss':    loadExpectedLoss,
+      'audit-log':        loadAuditLog,
+      'champion':         loadChampion,
+      'basel':            loadBasel,
+      'fraud':            loadFraud,
+    };
+    if (loaders[tab]) loaders[tab]();
+  }
+});
+
+// Load first tab immediately
+tabLoaded['model-validation'] = true;
+loadModelValidation();
+
+// ── 1. MODEL VALIDATION ──────────────────────────────────────────────────────
+let mvDistChart, mvRiskChart;
+
+async function loadModelValidation() {
+  const res = await apiFetch('/api/features/model-validation');
+  if (!res) return;
+  if (!res.ok) {
+    document.getElementById('tab-model-validation').innerHTML +=
+      `<div class="note-box" style="color:var(--bad)">No data yet — submit some applications first.</div>`;
+    return;
+  }
+  const d = await res.json();
+  const m = d.metrics;
+
+  document.getElementById('mv-auc').textContent   = fmtF(m.auc_roc);
+  document.getElementById('mv-gini').textContent  = fmtF(m.gini);
+  document.getElementById('mv-ks').textContent    = fmtF(m.ks_stat);
+  document.getElementById('mv-psi').textContent   = fmtF(m.psi);
+
+  const aucEl = document.getElementById('mv-auc-label');
+  aucEl.textContent = d.auc_interpretation;
+  aucEl.className   = 'mc-sub ' + (m.auc_roc >= 0.80 ? 'mc-good' : m.auc_roc >= 0.70 ? 'mc-warn' : 'mc-bad');
+
+  const psiEl = document.getElementById('mv-psi-label');
+  psiEl.textContent = d.psi_interpretation;
+  psiEl.className   = 'mc-sub ' + (m.psi < 0.10 ? 'mc-good' : m.psi < 0.25 ? 'mc-warn' : 'mc-bad');
+
+  // Score distribution bar chart
+  if (mvDistChart) mvDistChart.destroy();
+  mvDistChart = new Chart(document.getElementById('chart-mv-dist'), {
+    type: 'bar',
+    data: {
+      labels: d.score_distribution.labels,
+      datasets: [{
+        label: 'Applications',
+        data: d.score_distribution.counts,
+        backgroundColor: ['#fee2e2','#fee2e2','#fef9c3','#fef9c3','#eff6ff','#eff6ff','#dcfce7','#dcfce7'],
+        borderColor:     ['#dc2626','#dc2626','#d97706','#d97706','#2563eb','#2563eb','#16a34a','#16a34a'],
+        borderWidth: 2, borderRadius: 6, borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive:true, plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},border:{display:false}},
+              y:{beginAtZero:true,grid:{color:'#f1f5f9'},border:{display:false}}}
+    }
+  });
+
+  // Risk class donut
+  const cc = d.class_counts;
+  if (mvRiskChart) mvRiskChart.destroy();
+  mvRiskChart = new Chart(document.getElementById('chart-mv-risk'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Low', 'Medium', 'High'],
+      datasets: [{data:[cc.LOW,cc.MEDIUM,cc.HIGH],
+        backgroundColor:['#16a34a','#d97706','#dc2626'],borderColor:'#fff',borderWidth:3,hoverOffset:6}]
+    },
+    options:{cutout:'65%',responsive:true,plugins:{legend:{display:false},
+      tooltip:{backgroundColor:'#0f172a',titleColor:'#94a3b8',bodyColor:'#f8fafc',padding:10,cornerRadius:8}}}
+  });
+
+  const total = (cc.LOW||0) + (cc.MEDIUM||0) + (cc.HIGH||0);
+  document.getElementById('mv-class-legend').innerHTML = [
+    {label:'Low Risk',  val:cc.LOW,    cls:'#16a34a'},
+    {label:'Med Risk',  val:cc.MEDIUM, cls:'#d97706'},
+    {label:'High Risk', val:cc.HIGH,   cls:'#dc2626'},
+  ].map(x => `
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+      <span style="display:flex;align-items:center;gap:8px;color:var(--muted)">
+        <i style="width:10px;height:10px;border-radius:3px;background:${x.cls};display:inline-block"></i>${x.label}
+      </span>
+      <span style="font-weight:700;font-family:'Outfit',sans-serif">${x.val} (${total?Math.round(x.val/total*100):0}%)</span>
+    </div>`).join('');
+}
+
+// ── 2. STRESS TESTING ────────────────────────────────────────────────────────
+const stScenarioParams = {
+  mild:     {unemp:'+2.0 pp', gdp:'−1.5%', rate:'+100 bps'},
+  moderate: {unemp:'+4.0 pp', gdp:'−3.0%', rate:'+200 bps'},
+  severe:   {unemp:'+6.5 pp', gdp:'−5.0%', rate:'+300 bps'},
+};
+let stSelectedScenario = 'mild';
+
+document.querySelectorAll('.sc-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sc-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    stSelectedScenario = btn.dataset.scenario;
+    const p = stScenarioParams[stSelectedScenario];
+    document.getElementById('st-unemp').textContent = p.unemp;
+    document.getElementById('st-gdp').textContent   = p.gdp;
+    document.getElementById('st-rate').textContent  = p.rate;
+  });
+});
+
+document.getElementById('st-run').addEventListener('click', async () => {
+  const btn = document.getElementById('st-run');
+  btn.disabled = true; btn.textContent = 'Running…';
+  const res = await apiFetch('/api/features/stress-test', {
+    method: 'POST',
+    body: JSON.stringify({scenario: stSelectedScenario}),
+  });
+  btn.disabled = false; btn.textContent = 'Run Scenario';
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  const p = d.portfolio;
+
+  document.getElementById('st-results').style.display = 'block';
+  document.getElementById('st-lost').textContent    = p.flipped_to_rejected;
+  document.getElementById('st-exp').textContent     = fmtC(p.exposure_at_risk);
+  document.getElementById('st-el-inc').textContent  = fmtC(p.el_increase);
+  document.getElementById('st-appr').textContent    = p.stressed_approved;
+  document.getElementById('st-appr-sub').textContent= `Baseline: ${p.baseline_approved}`;
+
+  document.getElementById('st-tbody').innerHTML = d.applications.map(a => `
+    <tr>
+      <td>${a.id}</td>
+      <td style="font-weight:600">${a.name}</td>
+      <td style="font-family:'Outfit',sans-serif;font-weight:700">${a.original_score}</td>
+      <td style="font-family:'Outfit',sans-serif;font-weight:700;color:${a.stressed_score<580?'var(--bad)':'var(--text)'}">${a.stressed_score}</td>
+      <td><span class="${decColor(a.original_decision)}">${a.original_decision}</span></td>
+      <td><span class="${decColor(a.stressed_decision)}">${a.stressed_decision}</span></td>
+      <td class="${a.flipped?'flip-yes':'flip-no'}">${a.flipped?'▼ FLIPPED':'—'}</td>
+      <td>${fmtC(a.loan_amount)}</td>
+    </tr>`).join('');
+});
+
+// ── 3. EXPECTED LOSS ─────────────────────────────────────────────────────────
+async function loadExpectedLoss() {
+  const res = await apiFetch('/api/features/expected-loss');
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  const p = d.portfolio;
+
+  document.getElementById('el-ead').textContent      = fmtC(p.total_ead);
+  document.getElementById('el-total').textContent    = fmtC(p.total_el);
+  document.getElementById('el-rate-sub').textContent = `EL rate: ${p.portfolio_el_rate_pct}%`;
+
+  document.getElementById('el-tbody').innerHTML = d.applications.map(a => `
+    <tr>
+      <td>${a.id}</td>
+      <td style="font-weight:600">${a.name}</td>
+      <td>${fmtC(a.ead)}</td>
+      <td style="font-family:'Outfit',sans-serif">${(a.pd*100).toFixed(1)}%</td>
+      <td>45%</td>
+      <td style="font-weight:700;color:var(--bad)">${fmtC(a.el)}</td>
+      <td>${a.el_pct}%</td>
+      <td>${rcBadge(a.risk_class)}</td>
+      <td style="font-family:'Outfit',sans-serif;font-weight:700">${a.risk_score}</td>
+    </tr>`).join('');
+}
+
+// ── 4. AUDIT LOG ─────────────────────────────────────────────────────────────
+async function loadAuditLog() {
+  const eventType = document.getElementById('al-event-filter').value;
+  const url = '/api/features/audit-log' + (eventType ? `?event_type=${eventType}` : '');
+  const res = await apiFetch(url);
+  if (!res || !res.ok) return;
+  const d = await res.json();
+
+  // Populate filter dropdown once
+  const sel = document.getElementById('al-event-filter');
+  if (sel.options.length <= 1) {
+    d.event_types.forEach(et => {
+      const opt = document.createElement('option');
+      opt.value = et; opt.textContent = et;
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById('al-tbody').innerHTML = d.entries.length ? d.entries.map(e => `
+    <tr>
+      <td>${e.id}</td>
+      <td><code style="font-size:12px;background:#f1f5f9;padding:2px 7px;border-radius:4px">${e.event_type}</code></td>
+      <td style="font-size:12px">${e.user_email || '—'}</td>
+      <td>${e.application_id || '—'}</td>
+      <td style="font-size:12px;color:var(--muted)">${e.ip_address || '—'}</td>
+      <td style="font-size:12px;white-space:nowrap">${e.created_at ? fmtDate(e.created_at) : '—'}</td>
+      <td><details><summary style="cursor:pointer;font-size:12px;color:var(--accent)">View</summary>
+        <pre style="font-size:11px;background:#f8fafc;padding:8px;border-radius:6px;margin-top:6px;overflow-x:auto;max-width:320px">${JSON.stringify(e.payload,null,2)}</pre>
+      </details></td>
+    </tr>`).join('')
+  : '<tr><td colspan="7" class="empty-state">No audit entries yet.</td></tr>';
+}
+document.getElementById('al-refresh').addEventListener('click', loadAuditLog);
+document.getElementById('al-event-filter').addEventListener('change', loadAuditLog);
+
+// ── 5. CHAMPION / CHALLENGER ──────────────────────────────────────────────────
+async function loadChampion() {
+  const res = await apiFetch('/api/features/models');
+  if (!res) return;
+  if (!res.ok) {
+    document.getElementById('cc-cards').innerHTML =
+      '<div class="note-box" style="color:var(--muted);grid-column:1/-1">No model data yet. Submit applications to populate.</div>';
+    return;
+  }
+  const d = await res.json();
+  const models = d.models;
+
+  const modelHtml = models.map((m, i) => {
+    const isChamp = m.model_version.includes('champion');
+    const cls     = isChamp ? 'champion' : 'challenger';
+    const tagCls  = isChamp ? 'c1' : 'c2';
+    const label   = isChamp ? '★ Champion (Production)' : '⚡ Challenger (Shadow)';
+    return `
+    <div class="model-card ${cls}">
+      <div class="model-tag ${tagCls}">${label}</div>
+      <div style="font-size:17px;font-weight:800;margin-bottom:14px">${m.model_version}</div>
+      ${[
+        ['Sample Size',     m.sample_size],
+        ['Avg Risk Score',  m.avg_risk_score],
+        ['Avg Confidence',  m.avg_confidence + '%'],
+        ['Approval Rate',   m.approval_rate + '%'],
+        ['High Risk Rate',  m.high_risk_rate + '%'],
+        ['Gini Coefficient',m.gini],
+        ['KS Statistic',    m.ks_stat],
+      ].map(([l,v]) => `
+        <div class="model-stat">
+          <span class="ms-label">${l}</span>
+          <span class="ms-val">${v}</span>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  document.getElementById('cc-cards').innerHTML = modelHtml ||
+    '<div class="note-box" style="grid-column:1/-1">Only one model version found. Deploy a challenger to compare.</div>';
+
+  if (d.recommendation) {
+    const r = d.recommendation;
+    const cls = r.action==='PROMOTE'?'rec-promote':r.action==='WAIT'?'rec-wait':'rec-keep';
+    document.getElementById('cc-recommendation').innerHTML = `
+      <div class="rec-card ${cls}">
+        <strong>Recommendation: ${r.action}</strong><br/>${r.reason}<br/>
+        <span style="font-style:italic;opacity:.8">${r.verdict}</span>
+      </div>`;
+  }
+}
+
+// ── 6. BASEL III ─────────────────────────────────────────────────────────────
+async function loadBasel() {
+  const res = await apiFetch('/api/features/basel-capital');
+  if (!res || !res.ok) {
+    document.getElementById('bl-ead').textContent = 'No approved applications yet';
+    return;
+  }
+  const d = await res.json();
+  const p = d.portfolio;
+
+  document.getElementById('bl-ead').textContent    = fmtC(p.total_ead);
+  document.getElementById('bl-rwa').textContent    = fmtC(p.total_rwa);
+  document.getElementById('bl-cap').textContent    = fmtC(p.total_capital_required);
+  document.getElementById('bl-car').textContent    = p.car_pct + '%';
+
+  const carEl = document.getElementById('bl-car-status');
+  carEl.textContent = p.car_status;
+  carEl.className   = 'mc-sub ' + (p.car_pct >= 10 ? 'mc-good' : p.car_pct >= 8 ? 'mc-warn' : 'mc-bad');
+
+  const pct = Math.min(p.car_pct / 20 * 100, 100);
+  const bar = document.getElementById('bl-car-bar');
+  bar.style.width      = pct + '%';
+  bar.style.background = p.car_pct >= 10 ? 'var(--ok)' : p.car_pct >= 8 ? 'var(--warn)' : 'var(--bad)';
+
+  document.getElementById('bl-tbody').innerHTML = d.applications.map(a => `
+    <tr>
+      <td>${a.id}</td>
+      <td style="font-weight:600">${a.name}</td>
+      <td>${fmtC(a.ead)}</td>
+      <td style="font-family:'Outfit',sans-serif">${(a.pd*100).toFixed(1)}%</td>
+      <td><span class="badge" style="background:#eff6ff;color:#2563eb">${a.risk_weight_pct}%</span></td>
+      <td style="font-weight:700">${fmtC(a.rwa)}</td>
+      <td style="color:var(--warn);font-weight:700">${fmtC(a.capital_required)}</td>
+      <td style="color:var(--bad)">${fmtC(a.el)}</td>
+      <td style="font-family:'Outfit',sans-serif;font-weight:700">${a.risk_score}</td>
+    </tr>`).join('');
+}
+
+// ── 7. FRAUD VELOCITY ────────────────────────────────────────────────────────
+async function loadFraud() {
+  const res = await apiFetch('/api/features/fraud-velocity');
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  const s = d.summary;
+
+  document.getElementById('fv-total').textContent    = s.total_applications;
+  document.getElementById('fv-critical').textContent = s.critical_flags;
+  document.getElementById('fv-high').textContent     = s.high_flags;
+  document.getElementById('fv-24h').textContent      = s.apps_last_24h;
+
+  const userTbody = document.getElementById('fv-user-tbody');
+  if (d.user_velocity.length) {
+    userTbody.innerHTML = d.user_velocity.map(f => `
+      <tr>
+        <td style="font-size:13px">${f.email}</td>
+        <td style="font-weight:700;font-family:'Outfit',sans-serif">${f.app_count}</td>
+        <td>${f.window_minutes}</td>
+        <td>${rlBadge(f.risk_level)}</td>
+      </tr>`).join('');
+  } else {
+    userTbody.closest('table').style.display = 'none';
+    document.getElementById('fv-user-empty').style.display = 'block';
+  }
+
+  const ipTbody = document.getElementById('fv-ip-tbody');
+  if (d.ip_velocity.length) {
+    ipTbody.innerHTML = d.ip_velocity.map(f => `
+      <tr>
+        <td style="font-family:monospace;font-size:12px">${f.ip_address}</td>
+        <td style="font-weight:700">${f.unique_users}</td>
+        <td>${f.total_apps}</td>
+        <td>${rlBadge(f.risk_level)}</td>
+      </tr>`).join('');
+  } else {
+    ipTbody.closest('table').style.display = 'none';
+    document.getElementById('fv-ip-empty').style.display = 'block';
+  }
+}
+
+// ── ANALYST OVERRIDE MODAL ────────────────────────────────────────────────────
+window.openOverrideModal = function(appId) {
+  document.getElementById('override-app-id').value       = appId;
+  document.getElementById('override-app-label').textContent = '#' + appId;
+  document.getElementById('override-note').value         = '';
+  document.getElementById('override-error').style.display = 'none';
+  document.getElementById('override-modal').classList.add('open');
+};
+
+document.getElementById('override-cancel').addEventListener('click', () => {
+  document.getElementById('override-modal').classList.remove('open');
+});
+
+async function submitOverride(newStatus) {
+  const appId = document.getElementById('override-app-id').value;
+  const note  = document.getElementById('override-note').value.trim();
+  const errEl = document.getElementById('override-error');
+
+  if (!note || note.length < 5) {
+    errEl.textContent = 'Please provide a note of at least 5 characters.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const res = await apiFetch(`/api/features/override/${appId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({new_status: newStatus, note}),
+  });
+
+  if (!res) return;
+  if (!res.ok) {
+    const err = await res.json();
+    errEl.textContent = err.detail || 'Override failed.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  document.getElementById('override-modal').classList.remove('open');
+  // Reload audit log to show the new entry
+  tabLoaded['audit-log'] = false;
+  if (document.querySelector('.tab-btn[data-tab="audit-log"]').classList.contains('active')) {
+    tabLoaded['audit-log'] = true;
+    loadAuditLog();
+  }
+  alert(`Application #${appId} successfully overridden to ${newStatus}.`);
+}
+
+document.getElementById('override-approve').addEventListener('click', () => submitOverride('APPROVED'));
+document.getElementById('override-reject').addEventListener('click',  () => submitOverride('REJECTED'));
+
+// Close modal on backdrop click
+document.getElementById('override-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('override-modal')) {
+    document.getElementById('override-modal').classList.remove('open');
+  }
+});
+</script>
+{% endblock %}

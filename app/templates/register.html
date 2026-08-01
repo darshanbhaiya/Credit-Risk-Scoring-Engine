@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Register — RiskEngine</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<main class="auth-screen">
+  <a href="/" class="back-link">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15,18 9,12 15,6"/></svg>
+    Back to home
+  </a>
+
+  <form class="auth-card" id="form">
+    <div class="auth-heading">
+      <div class="auth-brand">RiskEngine</div>
+      <h1>Create Account</h1>
+      <p>Set up your risk analytics workspace</p>
+    </div>
+
+    <label>
+      Work Email
+      <div class="icon-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <input type="email" id="email" placeholder="you@company.com" required autocomplete="email"/>
+      </div>
+    </label>
+
+    <label>
+      Password <span style="font-weight:400;color:var(--muted)">(min 8 characters)</span>
+      <div class="icon-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <input type="password" id="password" placeholder="••••••••" minlength="8" required autocomplete="new-password"/>
+      </div>
+    </label>
+
+    <div class="error-box" id="err"></div>
+
+    <button type="submit" class="btn btn-primary" id="btn" style="width:100%">Create Workspace</button>
+
+    <div class="auth-foot">Already have an account? <a href="/login">Sign in</a></div>
+  </form>
+</main>
+<script>
+if(localStorage.getItem('token')) window.location.href='/dashboard';
+
+document.getElementById('form').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const btn=document.getElementById('btn'), err=document.getElementById('err');
+  btn.disabled=true; btn.textContent='Creating account…'; err.style.display='none';
+  const email=document.getElementById('email').value, password=document.getElementById('password').value;
+  try{
+    const r = await fetch('/api/auth/register',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({email,password})
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(Array.isArray(d.detail)?d.detail.map(x=>x.msg).join('. '):(d.detail||'Registration failed'));
+    // auto-login
+    const lr = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const ld = await lr.json();
+    localStorage.setItem('token', ld.access_token);
+    const me = await (await fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+ld.access_token}})).json();
+    localStorage.setItem('user', JSON.stringify(me));
+    window.location.href='/dashboard';
+  } catch(ex){
+    err.textContent=ex.message; err.style.display='block';
+    btn.disabled=false; btn.textContent='Create Workspace';
+  }
+});
+</script>
+</body>
+</html>

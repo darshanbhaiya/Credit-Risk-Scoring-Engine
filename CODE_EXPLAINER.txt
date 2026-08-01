@@ -1,0 +1,650 @@
+================================================================================
+  CREDIT RISK SCORING ENGINE — COMPLETE CODE EXPLAINER
+================================================================================
+
+This document explains every file in the codebase: what it does, how each
+function works, and how the files connect to each other.
+
+================================================================================
+  PROJECT STRUCTURE
+================================================================================
+
+  Credit-Risk-Scoring-Engine-main/
+  ├── app/
+  │   ├── routers/
+  │   │   ├── auth.py             POST /api/auth/register, login, GET /me
+  │   │   ├── applications.py     POST/GET /api/applications
+  │   │   └── score.py            POST /api/score (stateless)
+  │   ├── sql/
+  │   │   └── schema.sql          PostgreSQL DDL — tables, indexes, view
+  │   ├── static/
+  │   │   └── style.css           All UI styles (white/light blue theme)
+  │   ├── templates/              Jinja2 HTML pages served by Flask
+  │   │   ├── base.html           Shared sidebar + auth JavaScript
+  │   │   ├── landing.html        Public marketing page + score sandbox
+  │   │   ├── login.html          Login form
+  │   │   ├── register.html       Registration form
+  │   │   ├── dashboard.html      KPI cards + Chart.js charts
+  │   │   ├── new_application.html  3-step scoring wizard
+  │   │   ├── applications.html   Searchable history table
+  │   │   └── results.html        Score gauge + feature bar chart
+  │   ├── main.py                 Flask app factory + all page routes
+  │   ├── database.py             PostgreSQL connection pool (psycopg2)
+  │   ├── auth_utils.py           JWT + bcrypt + @login_required decorator
+  │   ├── schemas.py              Pydantic v2 validation models
+  │   ├── scoring.py              XGBoost inference pipeline (core engine)
+  │   ├── train_model.py          Model training script (run once)
+  │   ├── model.pkl               Serialised trained model (generated file)
+  │   └── requirements.txt        Python dependencies
+  ├── .env                        Environment variables (not in git)
+  ├── .env.example                Template showing all required variables
+  ├── .gitignore
+  ├── SETUP.md                    Step-by-step run guide
+  └── APP_EXPLAINER.txt           What the app does and how scoring works
+
+================================================================================
+  HOW A REQUEST FLOWS THROUGH THE SYSTEM
+================================================================================
+
+  Example: user submits a loan application from the browser form.
+
+  1. Browser sends: POST /api/applications  (JSON body with 14 fields)
+  2. main.py routes the request to routers/applications.py
+  3. applications.py validates the body using schemas.ApplicantInput
+  4. applications.py calls scoring.score_application(payload)
+  5. scoring.py loads model.pkl (or uses cached version)
+  6. scoring.py builds a 10-feature DataFrame and runs model.predict_proba()
+  7. scoring.py computes risk_score (300-850) and decision
+  8. scoring.py calls SHAP to get top 5 feature attributions
+  9. scoring.py returns a ScoreResult object
+  10. applications.py saves the result to PostgreSQL via database.get_db()
+  11. Flask returns the saved application as JSON (id, score_result, etc.)
+  12. Browser redirects to /applications/<id>
+  13. main.py serves results.html (Jinja2 template)
+  14. results.html JavaScript fetches /api/applications/<id> to load the data
+  15. Chart.js renders the feature bar chart in the browser
+
+================================================================================
+  FILE: main.py
+================================================================================
+
+PURPOSE
+  Entry point. Creates the Flask app, wires everything together, and defines
+  all URL routes. Uses the "app factory" pattern — everything is inside
+  create_app() rather than at module level.
+
+LOAD DOTENV (before all imports)
+  The very first thing is load_dotenv(). It reads the .env file and injects
+  all variables into os.environ. This MUST happen before any other module
+  reads environment variables (database.py reads DATABASE_URL at import time).
+  The path is one directory up from app/ (the project root).
+
+INSIDE create_app()
+
+  CORS
+    Applied only to /api/* routes. Allows browser JavaScript to call the API
+    without being blocked by same-origin policy. Origins are controlled by
+    the ALLOWED_ORIGINS environment variable.
+
+  init_pool()
+    Opens the PostgreSQL connection pool once at startup. All requests share
+    this pool — connections are never opened per-request.
+
+  execute_sql_file("sql/schema.sql")
+    Runs the schema file against PostgreSQL. Every statement uses IF NOT EXISTS
+    so it is safe to run on every startup. Creates tables and indexes if they
+    don't exist yet; does nothing if they already do.
+
+  register_blueprint() x3
+    Mounts the three router files:
+      auth_bp        → /api/auth
+      applications_bp → /api/applications
+      score_bp       → /api/score
+    A route defined as @router.post("/login") in auth.py becomes
+    POST /api/auth/login after registration.
+
+  Page routes (GET only)
+    Seven routes call render_template() to serve HTML pages.
+    The active= variable passed to the template tells base.html which
+    sidebar nav link to highlight as active.
+
+  if __name__ == "__main__"
+    Allows running directly with: python main.py
+    Reads PORT (default 5000) and FLASK_DEBUG from environment.
+
+================================================================================
+  FILE: database.py
+================================================================================
+
+PURPOSE
+  Manages the PostgreSQL connection pool and provides a safe context manager
+  for every database query in the application. All SQL in every router goes
+  through get_db(). No SQL is written in this file — it is infrastructure only.
+
+WHY A CONNECTION POOL?
+  Opening a new database TCP connection for every HTTP request adds ~50-100ms
+  overhead and wastes resources. A pool keeps N connections open and lends them
+  to request handlers. When the handler finishes, the connection is returned and
+  reused by the next request.
+
+DATABASE_URL
+  Module-level constant read from os.environ at import time. Default value
+  points to a local PostgreSQL instance. In production, set this environment
+  variable to a real connection string.
+
+_pool (module-level singleton)
+  The connection pool object. None until init_pool() is called. Using a
+  module-level variable means there is exactly one pool for the whole process.
+
+init_pool()
+  Creates a ThreadedConnectionPool (psycopg2) with:
+    minconn=2    — always keep 2 open connections (warm, ready to serve)
+    maxconn=20   — hard cap at 20 simultaneous connections
+    cursor_factory=RealDictCursor — every cursor returns rows as Python dicts
+                   {"id": 1, "email": "..."} instead of tuples (0, "...").
+                   This means column names are always accessible by name.
+  Called once in main.py. Never called again.
+
+get_pool()
+  Simple getter with a guard. Raises RuntimeError if called before init_pool().
+  Prevents confusing AttributeError crashes.
+
+get_db()  — THE MOST IMPORTANT FUNCTION
+  A context manager used as:
+      with get_db() as conn:
+          with conn.cursor() as cur:
+              cur.execute("SELECT ...", (param,))
+              row = cur.fetchone()
+
+  Step by step:
+    1. getconn() — borrows a connection from the pool (blocks if all 20 are busy)
+    2. yield conn — hands the connection to the calling code
+    3. On clean exit: conn.commit() — saves all changes made in this block
+    4. On exception: conn.rollback() — undoes partial changes (data safety)
+    5. Always (finally): putconn(conn) — returns the connection to the pool
+
+  This guarantees:
+    - Transactions are never left open or partial
+    - Connections are never leaked even if the route handler crashes
+    - The caller never needs to call commit(), rollback(), or close()
+
+execute_sql_file(path)
+  Opens a .sql file, reads the full content, and executes it as one block.
+  Only used at startup for schema.sql. Not called during request handling.
+
+================================================================================
+  FILE: auth_utils.py
+================================================================================
+
+PURPOSE
+  All authentication logic in one place. Provides password hashing, JWT
+  creation/validation, and the @login_required decorator. No route handlers
+  live here — this is a pure utility module.
+
+CONSTANTS
+  SECRET_KEY  — the cryptographic key used to sign JWTs. Read from JWT_SECRET
+                env variable. If not set, uses an insecure default — fine for
+                development, dangerous for production.
+  ALGORITHM   — "HS256" (HMAC-SHA256). The most common JWT signing algorithm.
+                Symmetric — same key signs and verifies.
+  ACCESS_TOKEN_EXPIRE_MINUTES — 480 (8 hours). Tokens are valid for 8 hours.
+                After that, the user needs to log in again.
+
+hash_password(password)
+  Takes a plain-text string. Uses bcrypt.hashpw() with a random salt.
+  Returns the resulting hash as a string. bcrypt is intentionally slow
+  (computationally expensive) which makes brute-force attacks impractical.
+  The salt is embedded in the output string — no need to store it separately.
+
+verify_password(password, hashed)
+  Checks a plain-text password against a stored bcrypt hash.
+  Uses bcrypt.checkpw() which is timing-safe — it always takes the same
+  amount of time regardless of where the strings differ. This prevents
+  timing-based attacks that try to guess passwords character by character.
+
+create_access_token(subject)
+  subject = the user's email address.
+  Builds a JWT payload: {"sub": "user@example.com", "exp": <timestamp>}
+  Signs it with SECRET_KEY and returns the JWT string.
+  The "exp" claim is a Unix timestamp. PyJWT validates it automatically on decode.
+
+decode_token(token)
+  Verifies the JWT signature and checks "exp" has not passed.
+  Returns the payload dict if valid.
+  Raises jwt.PyJWTError if the token is invalid, expired, or tampered with.
+
+@login_required decorator
+  Applied to any route that requires authentication. Wraps the route function.
+
+  How it works step by step:
+    1. Reads the Authorization header. Expected: "Bearer <token>"
+    2. If header is missing or malformed → return 401 immediately
+    3. Extracts the token string (splits on first space, takes second part)
+    4. Calls decode_token(). If it raises → return 401
+    5. Reads the "sub" claim (the email). If empty → return 401
+    6. Queries the users table: SELECT ... WHERE email = %s
+    7. If no user found → return 401
+    8. Stores the full user row as Flask's g.current_user (per-request context)
+    9. Calls the original route function
+
+  The @wraps(f) decorator preserves the original function name. Without it,
+  Flask would see multiple routes all named "wrapper" and throw an error.
+
+  Returning 401 for both "user not found" and "bad token" is intentional —
+  it prevents an attacker from learning which emails are registered by
+  sending tokens with known email subjects.
+
+================================================================================
+  FILE: schemas.py
+================================================================================
+
+PURPOSE
+  Defines all data contracts using Pydantic v2. Every piece of data entering
+  or leaving the API is described by a schema here. Pydantic automatically
+  validates types, ranges, and formats — route handlers do not need to write
+  any validation logic themselves.
+
+WHY PYDANTIC?
+  Without validation, a client could send {"annual_income": "hello"} and the
+  scoring code would crash with a confusing TypeError deep in the call stack.
+  Pydantic catches this at the boundary and returns a clear 422 response:
+  "annual_income: value is not a valid number".
+
+AUTH SCHEMAS
+
+  UserCreate — for POST /api/auth/register
+    email: EmailStr — Pydantic validates the email format automatically
+    password: str with Field(min_length=8) — rejects short passwords
+
+  UserLogin — for POST /api/auth/login
+    Same fields, no min_length on password (just checking what was sent)
+
+  UserRead — shape of user data returned in responses
+    model_config = {"from_attributes": True} lets Pydantic build this from
+    a dict (like a psycopg2 RealDictRow) rather than keyword arguments.
+
+  Token — shape of the login response
+    access_token: the JWT string
+    token_type: always "bearer" (default value, not sent by client)
+
+SCORING SCHEMAS
+
+  ApplicantInput — 14 validated fields
+    Every numeric field uses Field() with constraint keywords:
+      ge=  (greater than or equal)  — lower bound
+      le=  (less than or equal)     — upper bound
+      gt=  (greater than)           — strictly positive
+    Examples:
+      age: ge=18, le=85
+      debt_to_income_ratio: ge=0, le=1
+      loan_amount: gt=0 (must be positive, not zero)
+      tenure: ge=6, le=480 (6 months to 40 years)
+
+  TopFeature — one SHAP feature attribution
+    feature: name of the feature
+    impact: float, positive = reduces risk, negative = increases risk
+
+  ScoreResult — full output of the scoring engine
+    risk_class uses Literal["LOW", "MEDIUM", "HIGH"] — any other value fails
+    decision uses Literal["APPROVED", "REJECTED", "MANUAL REVIEW"] — same
+
+  ApplicationRead — a full application record as returned from the database
+    applicant_data: dict[str, Any] — the stored JSONB input fields
+    score_result: dict[str, Any] — the stored JSONB scoring output
+    model_dump(mode="json") converts datetime → ISO 8601 string automatically
+
+================================================================================
+  FILE: train_model.py
+================================================================================
+
+PURPOSE
+  Standalone script that builds a synthetic training dataset, trains the
+  XGBoost classifier, evaluates it, and saves model.pkl. Run once before
+  starting the server. Also serves as the source of truth for the FEATURES
+  list and LOAN_PURPOSES dict, which are imported by scoring.py at runtime.
+
+MODULE-LEVEL CONSTANTS (imported by scoring.py)
+
+  FEATURES — ordered list of the 10 feature names
+    The order is critical. The DataFrame built in scoring.py must use this
+    exact order so the model receives features in the columns it expects.
+
+  LOAN_PURPOSES — maps purpose strings to integers
+    XGBoost only accepts numbers, so text categories must be encoded.
+    home=0, auto=1, education=2, business=3, personal=4,
+    debt_consolidation=5, venture=6
+
+generate_dataset(rows=4000)
+  Creates 4,000 synthetic applicants with realistic distributions:
+    annual_income    — lognormal (right-skewed, like real incomes)
+    employment_years — gamma (bounded, mostly 0–15 years)
+    debt_to_income   — beta (naturally stays between 0 and 1)
+    num_delinquencies — Poisson (count data, most people have 0)
+    payment_history  — normal centred at 78 (reasonable average)
+
+  Label generation — the "financial pressure" formula:
+    pressure = 1.9 * DTI
+             + 0.42 * delinquencies
+             + (loan/income) * 0.35
+             - payment_history / 90
+             - credit_length / 45
+             - employment_years / 55
+
+  Higher pressure means more financial stress. The formula's weights were
+  chosen to match real-world credit risk intuition:
+    DTI (1.9x weight) — the strongest single indicator of financial stress
+    Delinquencies (0.42x) — past behaviour predicts future behaviour
+    Payment history (negative) — penalises the score, good borrowers have high scores
+
+  Labels are assigned by splitting at the 48th and 78th percentiles:
+    Bottom 48% → LOW risk (class 0)
+    Next 30%   → MEDIUM risk (class 1)
+    Top 22%    → HIGH risk (class 2)
+
+main()
+  1. Generates dataset (4,000 rows).
+  2. Splits 80/20 train/test with stratify=True (same class proportions in both).
+  3. Trains XGBClassifier:
+       n_estimators=160   — 160 boosting rounds (trees in the ensemble)
+       max_depth=4        — shallow trees = less overfitting
+       learning_rate=0.08 — small steps = better generalisation
+       subsample=0.9      — each tree trains on 90% of rows randomly sampled
+       colsample_bytree=0.9 — each tree uses 90% of features randomly sampled
+  4. Evaluates on test set and prints precision/recall/F1 per class.
+     Typical accuracy: ~90%.
+  5. Saves model bundle to model.pkl:
+       {"model": XGBClassifier, "features": FEATURES, "loan_purposes": LOAN_PURPOSES}
+     Saving the full bundle ensures the feature ordering and purpose encoding
+     used at training time are always available at inference time.
+
+================================================================================
+  FILE: scoring.py
+================================================================================
+
+PURPOSE
+  The core ML inference engine. Called by both the applications router
+  (saves to DB) and the score router (stateless). Takes a validated
+  ApplicantInput, runs the full pipeline, and returns a ScoreResult.
+
+_load_bundle()  — singleton model loader
+  Loads model.pkl from disk on first call, caches in _MODEL_BUNDLE.
+  On every subsequent call, returns the cached bundle instantly.
+  This is critical for performance — loading a .pkl file on every request
+  would add ~200ms latency. The global keyword allows the function to
+  write to the module-level _MODEL_BUNDLE variable.
+
+_applicant_frame(applicant)  — feature engineering
+  Converts the ApplicantInput into a one-row pandas DataFrame with the
+  10 features in the exact order the model was trained on.
+
+  loan_purpose is encoded: the string "home" becomes integer 0.
+  If the purpose string is not in LOAN_PURPOSES (e.g. an unusual value),
+  it falls back to the "personal" encoding (4) — prevents a KeyError crash.
+
+  Using a DataFrame (not a plain array) is required because XGBoost checks
+  that feature names at inference time match those at training time.
+
+_fallback_impacts(frame)  — heuristic feature attribution
+  Used when the SHAP library is not installed. Computes approximate impact
+  values using simple linear formulas based on feature thresholds:
+    payment_history_score: (score - 72) / 100
+    debt_to_income_ratio:  negated (higher = worse)
+    num_delinquencies:     negated and scaled by /8
+    credit_history_length: scaled by /40 (longer = better)
+    annual_income:         scaled by /250000, capped at 1.0
+  Returns the 5 features sorted by absolute impact.
+
+_shap_impacts(model, frame, predicted_class)  — SHAP attribution
+  Uses SHAP's TreeExplainer to calculate which features most influenced
+  the model's output for this specific applicant.
+
+  SHAP (SHapley Additive exPlanations) answers:
+    "How much did each feature push the prediction away from the average?"
+    Positive value = pushed toward lower risk (helps the applicant)
+    Negative value = pushed toward higher risk (hurts the applicant)
+
+  TreeExplainer is fast for tree-based models (XGBoost, RandomForest).
+  It uses the tree structure directly rather than sampling.
+
+  The shap_values() output is a 3D array:
+    [applicant_index, feature_index, class_index]
+  We select values for the predicted_class only — we explain why the model
+  classified this applicant as LOW/MEDIUM/HIGH, not all three simultaneously.
+
+  Returns top 5 features sorted by absolute impact value.
+  If SHAP raises any error → falls back to _fallback_impacts().
+
+score_application(applicant)  — main public entry point
+  Full pipeline in order:
+    1. Load the model bundle (cached after first call)
+    2. Build 10-feature DataFrame
+    3. model.predict_proba() → [p_low, p_medium, p_high] e.g. [0.82, 0.13, 0.05]
+    4. predicted_class = argmax (index of highest probability) = 0 (LOW)
+    5. confidence = max probability * 100 = 82.0%
+    6. base_score = {LOW: 755, MEDIUM: 635, HIGH: 515}[predicted_class]
+    7. adjustment = (payment_history_score - 75) * 1.3
+                  - debt_to_income_ratio * 95
+                  - num_delinquencies * 18
+    8. risk_score = clip(base_score + adjustment, 300, 850)
+    9. Decision logic:
+         LOW + score >= 690  → APPROVED
+         HIGH or score < 580 → REJECTED
+         anything else       → MANUAL REVIEW
+   10. SHAP feature attributions
+   11. Return ScoreResult
+
+================================================================================
+  FILE: routers/auth.py
+================================================================================
+
+PURPOSE
+  Flask Blueprint with 3 authentication endpoints.
+  Registered in main.py as url_prefix="/api/auth".
+
+register()  —  POST /api/auth/register
+  1. Validates body as UserCreate (email + password min 8 chars)
+  2. Checks if email already exists → 409 Conflict if so
+  3. Counts users: if 0 → new user is "admin", otherwise "user"
+  4. Hashes the password, inserts user row
+  5. RETURNING clause returns the inserted row without a second query
+  6. Returns UserRead schema with 201 Created
+
+login()  —  POST /api/auth/login
+  1. Validates body as UserLogin
+  2. Fetches user by email. Missing user → 401 (same error as wrong password
+     to prevent email enumeration attacks)
+  3. bcrypt.verify_password() against stored hash → 401 if fails
+  4. Creates JWT with user email as subject
+  5. Returns Token (access_token, token_type) with 200 OK
+
+me()  —  GET /api/auth/me
+  Protected by @login_required.
+  Returns the current user's profile from g.current_user (set by decorator).
+  Used by the frontend on every page load to verify the session is still valid.
+
+================================================================================
+  FILE: routers/applications.py
+================================================================================
+
+PURPOSE
+  Flask Blueprint with 3 endpoints covering the full application lifecycle.
+  All endpoints require authentication. Registered at /api/applications.
+
+_serialize_app(row)  — private helper
+  Converts a psycopg2 RealDictRow to a JSON-safe dict.
+  ApplicationRead.model_dump(mode="json") handles datetime → ISO string.
+  Called by all three endpoints before returning.
+
+create_application()  —  POST /api/applications
+  1. Validates 14-field body as ApplicantInput
+  2. Calls score_application(payload) — the ML engine runs here
+  3. Saves to PostgreSQL:
+       user_id from g.current_user["id"]
+       applicant_data and score_result cast to ::jsonb (structured storage)
+       status = the decision string from ScoreResult
+     RETURNING retrieves the new row (avoids extra SELECT)
+  4. Returns the saved application with 201 Created
+
+list_applications()  —  GET /api/applications
+  Admin users → all applications (no filter), newest first
+  Regular users → only their own (WHERE user_id = %s)
+  Returns JSON array (empty array if none exist)
+
+get_application(application_id)  —  GET /api/applications/<id>
+  Fetches by primary key. Returns 404 if not found.
+  Authorization: users can only see their own. Admins can see all.
+  Returns 403 Forbidden if a user tries to access someone else's application.
+
+================================================================================
+  FILE: routers/score.py
+================================================================================
+
+PURPOSE
+  Single stateless scoring endpoint. No authentication required. No database.
+  For API clients that want to score without creating an account.
+
+score()  —  POST /api/score
+  1. Validates body as ApplicantInput
+  2. Calls score_application(). If model.pkl is missing → 503 Service Unavailable
+  3. Returns ScoreResult as JSON with 200 OK
+
+================================================================================
+  FILE: sql/schema.sql
+================================================================================
+
+PURPOSE
+  PostgreSQL DDL that creates all tables, indexes, and a summary view.
+  Every statement uses IF NOT EXISTS — safe to run on every startup.
+
+TABLES
+
+  users
+    id              SERIAL PRIMARY KEY — auto-incrementing integer
+    email           VARCHAR(255) UNIQUE NOT NULL — login identifier
+    hashed_password VARCHAR(255) NOT NULL — bcrypt hash, never plain text
+    role            VARCHAR(32) DEFAULT 'user' — 'user' or 'admin'
+    created_at      TIMESTAMPTZ DEFAULT NOW() — timezone-aware timestamp
+
+  applications
+    id              SERIAL PRIMARY KEY
+    user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE
+                    If a user is deleted, all their applications are deleted too
+    applicant_data  JSONB — the 14-field input stored as structured JSON
+    score_result    JSONB — the full ScoreResult stored as structured JSON
+    status          VARCHAR(32) — mirrors ScoreResult.decision
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+
+INDEXES
+
+  idx_users_email            — fast login lookups (WHERE email = %s)
+  idx_applications_user_id   — fast per-user application lists
+  idx_applications_created_at DESC — efficient newest-first ORDER BY
+  idx_applications_status    — filtering by decision status
+  idx_applications_applicant_data_gin  — GIN index on JSONB for key-path queries
+  idx_applications_score_result_gin    — GIN index on score JSONB
+
+  GIN (Generalised Inverted Index) indexes on JSONB enable fast queries like:
+    WHERE applicant_data ->> 'employment_type' = 'Salaried'
+  Without a GIN index, PostgreSQL would scan every row.
+
+VIEW: v_application_summary
+  Joins applications and users to expose the most useful columns as flat fields.
+  Extracts nested JSONB values using the ->> operator (returns text):
+    applicant_data ->> 'name'        → applicant name
+    (score_result  ->> 'risk_score')::INTEGER → cast text to integer
+  Used for direct SQL queries on the database for reporting or debugging.
+  Not used by the Flask app itself.
+
+================================================================================
+  FRONTEND: templates/ and static/style.css
+================================================================================
+
+base.html — shared layout
+  All authenticated pages extend this template using Jinja2 template
+  inheritance ({% extends "base.html" %} / {% block content %}).
+  Contains the sidebar navigation with inline SVG icons and three shared
+  JavaScript functions used by every page:
+    getToken()    — reads JWT from localStorage
+    apiFetch()    — wraps fetch() with Authorization header, auto-redirects
+                    to /login on 401
+    doLogout()    — clears localStorage and redirects to /login
+
+  An IIFE (immediately invoked function) at the bottom checks for a token
+  on every page load and redirects to /login if none is found. This is the
+  client-side auth guard. The Flask page routes themselves do NOT check auth
+  — they always serve the HTML. The JavaScript handles the redirect.
+
+landing.html — public page (no auth required)
+  Static marketing page with hero section, stats counters, feature cards,
+  a live interactive scoring sandbox (JavaScript heuristic, not the real model),
+  how-it-works flow, pricing section, and footer.
+  The scoring sandbox uses a simplified formula in JavaScript to give instant
+  feedback — it does not call the API.
+
+login.html / register.html
+  Standalone pages that do not extend base.html (no sidebar).
+  Each contains a form and JavaScript that POSTs to /api/auth/login or
+  /api/auth/register, stores the JWT in localStorage, fetches /api/auth/me
+  to get the user profile, stores it in localStorage, then redirects to /dashboard.
+
+dashboard.html
+  Loads all applications via GET /api/applications and renders:
+    4 KPI cards (totals by decision)
+    Score band summary (Poor/Fair/Good/Excellent counts)
+    Chart.js area chart (credit score trend over time with gradient fill)
+    Chart.js doughnut chart (risk distribution with custom legend)
+    Chart.js bar chart (decision breakdown)
+    Recent applications table (latest 6)
+
+new_application.html
+  3-step wizard form. Step navigation is handled entirely in JavaScript —
+  only one <div class="step-panel"> is visible at a time, controlled by goStep().
+  Three presets (prime/mixed/subprime) fill all form fields with test data.
+  On submit, POSTs to /api/applications and redirects to the result page.
+
+applications.html
+  Loads all applications and renders a table. Client-side filtering in
+  JavaScript — no extra API calls when the user types in the search box or
+  changes the filters. filterTable() re-filters the allItems array in memory.
+
+results.html
+  Loads a single application via GET /api/applications/<id>.
+  Renders:
+    Decision banner (colour-coded with icon, APPROVED/REJECTED/MANUAL REVIEW)
+    SVG score gauge (needle rotated by CSS transform based on score)
+    Score gradient track bar (visual position on 300-850 scale)
+    Confidence + Risk Class stats
+    Chart.js horizontal bar chart for SHAP feature contributions
+      (green bars for positive impact, red for negative)
+    12-cell data grid with all applicant fields
+  Download button creates a plain-text report and triggers browser download
+  using Blob + createObjectURL — no server call needed.
+
+style.css — design system
+  White and light blue colour theme using CSS custom properties (variables):
+    --bg: #f8fafc      — light grey page background
+    --bg-panel: #fff   — white card/panel background
+    --accent: #2563eb  — primary blue
+    --border: #e2e8f0  — light border colour
+  All components (panels, KPI cards, tables, badges, gauge, banners, buttons,
+  forms, sidebar, landing sections) are styled here with no external frameworks.
+
+================================================================================
+  DEPENDENCY SUMMARY
+================================================================================
+
+  Flask          — web framework, routing, template rendering
+  Flask-Cors     — CORS headers for /api/* routes
+  psycopg2-binary — PostgreSQL driver (binary = no C compilation required)
+  python-dotenv  — loads .env file into os.environ
+  PyJWT          — JWT creation and validation
+  bcrypt         — password hashing (intentionally slow for security)
+  pydantic[email] — data validation schemas with EmailStr support
+  numpy          — array operations in scoring (predict_proba, clip, argmax)
+  pandas         — DataFrame for feature vector construction
+  xgboost        — gradient boosted tree ML model
+  scikit-learn   — train/test split and classification report (training only)
+  joblib         — model serialisation (save/load model.pkl)
+  shap           — SHAP TreeExplainer for feature attributions (optional)
+
+================================================================================

@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel — RiskEngine{% endblock %}
+
+{% block head %}
+<style>
+/* ── Tab nav (reuse same pattern as features page) ── */
+.tab-nav{display:flex;gap:4px;margin-bottom:28px;background:#f1f5f9;border-radius:12px;padding:5px;width:fit-content}
+.tab-btn{padding:9px 22px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);background:transparent;border:0;cursor:pointer;transition:all .2s;white-space:nowrap}
+.tab-btn.active{background:#fff;color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,0.10)}
+.tab-btn:hover:not(.active){color:var(--text)}
+.tab-panel{display:none}
+.tab-panel.active{display:block;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* ── Role badges ── */
+.role-badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.role-admin  {background:#ede9fe;color:#6d28d9}
+.role-analyst{background:#eff6ff;color:#2563eb}
+.role-user   {background:#f1f5f9;color:#475569}
+
+/* ── Stat chips ── */
+.stat-row{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.stat-chip{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px 22px;display:flex;flex-direction:column;gap:4px;min-width:120px}
+.stat-chip strong{font-family:'Outfit',sans-serif;font-size:26px;font-weight:800;color:var(--text);line-height:1}
+.stat-chip span{font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600;letter-spacing:.04em}
+
+/* ── User table controls ── */
+.role-select{width:120px;min-height:34px;padding:0 10px;font-size:13px;border-radius:8px;border:1px solid var(--border)}
+.save-btn{min-height:34px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:700;background:var(--accent);color:#fff;border:0;cursor:pointer;transition:all .2s}
+.save-btn:hover{background:var(--accent-h)}
+.save-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── Invite result ── */
+.invite-result{display:none;margin-top:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:18px 20px}
+.invite-url-row{display:flex;gap:8px;margin-top:10px}
+.invite-url-row input{flex:1;font-size:12px;font-family:monospace;background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--muted)}
+.copy-btn{min-height:36px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:700;background:var(--ok);color:#fff;border:0;cursor:pointer;white-space:nowrap}
+.copy-btn:hover{background:#15803d}
+
+/* ── Roles reference table ── */
+.roles-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:24px}
+.role-card{border-radius:14px;padding:24px;border:2px solid}
+.role-card.rc-admin  {border-color:#a78bfa;background:#faf5ff}
+.role-card.rc-analyst{border-color:#93c5fd;background:#eff6ff}
+.role-card.rc-user   {border-color:#cbd5e1;background:#f8fafc}
+.role-card h3{font-size:15px;font-weight:800;margin-bottom:4px}
+.role-card .rc-desc{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.6}
+.perm-list{list-style:none;display:flex;flex-direction:column;gap:7px}
+.perm-list li{display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--muted)}
+.perm-yes{color:var(--ok);font-size:15px;flex-shrink:0;margin-top:-1px}
+.perm-no {color:#cbd5e1;font-size:15px;flex-shrink:0;margin-top:-1px}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:28px;right:28px;background:#0f172a;color:#f8fafc;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;opacity:0;transform:translateY(12px);transition:all .3s;z-index:200;pointer-events:none}
+.toast.show{opacity:1;transform:none}
+
+@media(max-width:960px){.roles-grid{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Admin Panel</h1>
+  <p>Manage users, assign roles, and control access to the platform.</p>
+</div>
+
+<!-- ── Tab navigation ── -->
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn"        data-tab="users">Users</button>
+  <button class="tab-btn"        data-tab="roles">Roles</button>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB 1 — OVERVIEW
+══════════════════════════════════════════ -->
+<div class="tab-panel active" id="tab-overview">
+
+  <div class="stat-row">
+    <div class="stat-chip"><strong id="st-total">—</strong><span>Total Users</span></div>
+    <div class="stat-chip"><strong id="st-admin">—</strong><span>Admins</span></div>
+    <div class="stat-chip"><strong id="st-analyst">—</strong><span>Analysts</span></div>
+    <div class="stat-chip"><strong id="st-user">—</strong><span>Users</span></div>
+  </div>
+
+  <!-- Quick actions -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+    <!-- Default credentials notice -->
+    <div class="panel" style="border-color:#fde68a;background:#fffbeb">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <svg width="22" height="22" fill="none" stroke="#d97706" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:2px">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:6px">Default Admin Credentials</div>
+          <div style="font-size:13px;color:#78350f;line-height:1.7">
+            The system was seeded with:<br/>
+            <code style="background:#fef3c7;padding:1px 6px;border-radius:4px">email: admin@riskengine.com</code><br/>
+            <code style="background:#fef3c7;padding:1px 6px;border-radius:4px">password: password123</code><br/>
+            <span style="font-size:12px;margin-top:4px;display:block">
+              Change this in production by updating the user record.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generate invite -->
+    <div class="panel">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:12px">Invite a New Analyst</h3>
+      <div style="display:grid;gap:12px">
+        <label style="font-size:13px;font-weight:600;color:var(--muted);display:grid;gap:5px">
+          Email
+          <input type="email" id="invite-email" placeholder="analyst@company.com"/>
+        </label>
+        <label style="font-size:13px;font-weight:600;color:var(--muted);display:grid;gap:5px">
+          Role
+          <select id="invite-role" style="min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--border)">
+            <option value="analyst">Analyst</option>
+            <option value="user">User</option>
+          </select>
+        </label>
+        <div id="invite-error" style="display:none;font-size:13px;color:var(--bad);background:var(--bad-bg);border:1px solid #fca5a5;border-radius:8px;padding:10px 14px"></div>
+        <button class="btn btn-primary" id="invite-btn" onclick="generateInvite()" style="width:100%">
+          Generate Invite Link
+        </button>
+      </div>
+      <div class="invite-result" id="invite-result">
+        <div style="font-size:13px;font-weight:700;color:#15803d">✓ Link ready — send to <span id="invited-label">—</span></div>
+        <div class="invite-url-row">
+          <input type="text" id="invite-url-display" readonly/>
+          <button class="copy-btn" onclick="copyUrl()">Copy</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB 2 — USERS
+══════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-users">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <p style="font-size:13px;color:var(--muted)">
+      Change a user's role using the dropdown then click Save. Role changes are logged to the audit trail.
+    </p>
+    <button class="btn btn-ghost btn-sm" onclick="loadUsers()">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      Refresh
+    </button>
+  </div>
+
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Email / Username</th>
+          <th>Current Role</th>
+          <th>Member Since</th>
+          <th style="width:220px">Update Role</th>
+        </tr></thead>
+        <tbody id="users-tbody">
+          <tr><td colspan="4" class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB 3 — ROLES REFERENCE
+══════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-roles">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6">
+    Three roles control what each user can see and do. Assign them carefully —
+    role changes are permanent until changed again, and every change is recorded in the audit trail.
+  </p>
+
+  <div class="roles-grid">
+
+    <!-- Admin -->
+    <div class="role-card rc-admin">
+      <span class="role-badge role-admin" style="margin-bottom:12px">Admin</span>
+      <h3 style="color:#5b21b6">Full Control</h3>
+      <p class="rc-desc">System administrator. Can manage all users and access every feature of the platform.</p>
+      <ul class="perm-list">
+        <li><span class="perm-yes">✓</span> Submit credit applications</li>
+        <li><span class="perm-yes">✓</span> View own applications</li>
+        <li><span class="perm-yes">✓</span> View ALL applications</li>
+        <li><span class="perm-yes">✓</span> Risk Analytics (all 7 tabs)</li>
+        <li><span class="perm-yes">✓</span> Override MANUAL REVIEW decisions</li>
+        <li><span class="perm-yes">✓</span> Manage users &amp; roles</li>
+        <li><span class="perm-yes">✓</span> Generate invite links</li>
+        <li><span class="perm-yes">✓</span> Export CSV reports</li>
+        <li><span class="perm-yes">✓</span> View audit trail</li>
+      </ul>
+    </div>
+
+    <!-- Analyst -->
+    <div class="role-card rc-analyst">
+      <span class="role-badge role-analyst" style="margin-bottom:12px">Analyst</span>
+      <h3 style="color:#1d4ed8">Credit Analyst</h3>
+      <p class="rc-desc">Read-only portfolio access with the ability to make final decisions on flagged applications.</p>
+      <ul class="perm-list">
+        <li><span class="perm-yes">✓</span> Submit credit applications</li>
+        <li><span class="perm-yes">✓</span> View own applications</li>
+        <li><span class="perm-yes">✓</span> View ALL applications</li>
+        <li><span class="perm-yes">✓</span> Risk Analytics (all 7 tabs)</li>
+        <li><span class="perm-yes">✓</span> Override MANUAL REVIEW decisions</li>
+        <li><span class="perm-no">✗</span> Manage users &amp; roles</li>
+        <li><span class="perm-no">✗</span> Generate invite links</li>
+        <li><span class="perm-yes">✓</span> Export CSV reports</li>
+        <li><span class="perm-yes">✓</span> View audit trail</li>
+      </ul>
+    </div>
+
+    <!-- User -->
+    <div class="role-card rc-user">
+      <span class="role-badge role-user" style="margin-bottom:12px">User</span>
+      <h3 style="color:#334155">Standard User</h3>
+      <p class="rc-desc">Applicant-level access. Can submit applications and view their own results only.</p>
+      <ul class="perm-list">
+        <li><span class="perm-yes">✓</span> Submit credit applications</li>
+        <li><span class="perm-yes">✓</span> View own applications</li>
+        <li><span class="perm-no">✗</span> View ALL applications</li>
+        <li><span class="perm-no">✗</span> Risk Analytics</li>
+        <li><span class="perm-no">✗</span> Override decisions</li>
+        <li><span class="perm-no">✗</span> Manage users &amp; roles</li>
+        <li><span class="perm-no">✗</span> Generate invite links</li>
+        <li><span class="perm-no">✗</span> Export CSV reports</li>
+        <li><span class="perm-no">✗</span> View audit trail</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- How to assign roles -->
+  <div class="panel" style="background:#f8fafc">
+    <h3 style="font-size:14px;font-weight:700;margin-bottom:12px">How to Assign Roles</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13px;color:var(--muted);line-height:1.7">
+      <div>
+        <strong style="color:var(--text);display:block;margin-bottom:4px">Existing user</strong>
+        Go to the <strong>Users tab</strong>, find the user, change the
+        dropdown from their current role to the new one, and click <strong>Save</strong>.
+        Takes effect immediately — the user's next page load will reflect the new permissions.
+      </div>
+      <div>
+        <strong style="color:var(--text);display:block;margin-bottom:4px">New user</strong>
+        Use <strong>Invite a New Analyst</strong> on the Overview tab.
+        Enter their email, choose a role, generate the link, and send it to them.
+        They set their own password — no SQL required.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentUserId = null;
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+document.querySelector('.tab-nav').addEventListener('click', e => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  if (btn.dataset.tab === 'users') loadUsers();
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = isError ? '#dc2626' : '#0f172a';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function roleBadge(role) {
+  const cls = {admin:'role-admin', analyst:'role-analyst', user:'role-user'}[role] || 'role-user';
+  return `<span class="role-badge ${cls}">${role}</span>`;
+}
+
+function fmtDate(d) {
+  return new Date(d).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+}
+
+// ── Overview stats ─────────────────────────────────────────────────────────────
+async function loadStats() {
+  const res = await apiFetch('/api/auth/users');
+  if (!res || !res.ok) return;
+  const users = await res.json();
+  document.getElementById('st-total').textContent   = users.length;
+  document.getElementById('st-admin').textContent   = users.filter(u => u.role === 'admin').length;
+  document.getElementById('st-analyst').textContent = users.filter(u => u.role === 'analyst').length;
+  document.getElementById('st-user').textContent    = users.filter(u => u.role === 'user').length;
+}
+
+// ── Users tab ─────────────────────────────────────────────────────────────────
+async function loadUsers() {
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Loading…</td></tr>';
+
+  const res = await apiFetch('/api/auth/users');
+  if (!res || !res.ok) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state" style="color:var(--bad)">Access denied.</td></tr>';
+    return;
+  }
+  const users = await res.json();
+
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No users found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const isSelf = u.id === currentUserId;
+    return `
+    <tr>
+      <td>
+        <div style="font-weight:600">${u.email}</div>
+        ${isSelf ? '<div style="font-size:11px;color:var(--accent);font-weight:600">← you</div>' : ''}
+      </td>
+      <td id="role-cell-${u.id}">${roleBadge(u.role)}</td>
+      <td style="font-size:13px;color:var(--muted)">${fmtDate(u.created_at)}</td>
+      <td>
+        ${isSelf
+          ? '<span style="font-size:12px;color:var(--muted)">Cannot change own role</span>'
+          : `<div style="display:flex;gap:8px;align-items:center">
+               <select class="role-select" id="sel-${u.id}" onchange="markDirty(${u.id})">
+                 <option value="user"     ${u.role==='user'    ?'selected':''}>User</option>
+                 <option value="analyst"  ${u.role==='analyst' ?'selected':''}>Analyst</option>
+                 <option value="admin"    ${u.role==='admin'   ?'selected':''}>Admin</option>
+               </select>
+               <button class="save-btn" id="save-${u.id}" onclick="saveRole(${u.id})" disabled>Save</button>
+             </div>`
+        }
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function markDirty(id) {
+  document.getElementById(`save-${id}`).disabled = false;
+}
+
+async function saveRole(userId) {
+  const sel  = document.getElementById(`sel-${userId}`);
+  const btn  = document.getElementById(`save-${userId}`);
+  btn.disabled = true; btn.textContent = '…';
+
+  const res = await apiFetch(`/api/auth/users/${userId}/role`, {
+    method: 'PATCH',
+    body:   JSON.stringify({ role: sel.value }),
+  });
+
+  btn.textContent = 'Save';
+
+  if (!res || !res.ok) {
+    const err = await res.json();
+    showToast(err.detail || 'Failed to update', true);
+    btn.disabled = false;
+    return;
+  }
+
+  const updated = await res.json();
+  document.getElementById(`role-cell-${userId}`).innerHTML = roleBadge(updated.role);
+  showToast(`${updated.email} → ${updated.role}`, false);
+  loadStats();
+}
+
+// ── Invite ────────────────────────────────────────────────────────────────────
+async function generateInvite() {
+  const email  = document.getElementById('invite-email').value.trim();
+  const role   = document.getElementById('invite-role').value;
+  const btn    = document.getElementById('invite-btn');
+  const errEl  = document.getElementById('invite-error');
+  const resEl  = document.getElementById('invite-result');
+
+  errEl.style.display = 'none';
+  resEl.style.display = 'none';
+
+  if (!email || !email.includes('@')) {
+    errEl.textContent = 'Enter a valid email address.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Generating…';
+
+  const res = await apiFetch('/api/auth/invite', {
+    method: 'POST',
+    body:   JSON.stringify({ email, role }),
+  });
+
+  btn.disabled = false; btn.textContent = 'Generate Invite Link';
+
+  if (!res || !res.ok) {
+    const err = await res.json();
+    errEl.textContent = err.detail || 'Failed.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const data = await res.json();
+  document.getElementById('invited-label').textContent   = data.email;
+  document.getElementById('invite-url-display').value    = data.invite_url;
+  resEl.style.display = 'block';
+  document.getElementById('invite-email').value = '';
+  showToast('Invite link ready', false);
+}
+
+function copyUrl() {
+  const v = document.getElementById('invite-url-display').value;
+  navigator.clipboard.writeText(v).then(() => showToast('Copied to clipboard', false));
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  const res = await apiFetch('/api/auth/me');
+  if (!res || !res.ok) return;
+  const me = await res.json();
+  currentUserId = me.id;
+  if (me.role !== 'admin') {
+    window.location.href = '/dashboard';
+    return;
+  }
+  loadStats();
+})();
+</script>
+{% endblock %}

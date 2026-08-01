@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>{% block title %}RiskEngine{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  {% block head %}{% endblock %}
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <a href="/dashboard" class="brand">
+      <div class="brand-icon">CR</div>
+      <span class="brand-name">RiskEngine</span>
+    </a>
+    <nav>
+      <a href="/dashboard" class="nav-link {% if active=='dashboard' %}active{% endif %}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </a>
+      <a href="/applications/new" class="nav-link {% if active=='new' %}active{% endif %}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        New Application
+      </a>
+      <a href="/applications" class="nav-link {% if active=='applications' %}active{% endif %}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Applications
+      </a>
+      <a href="/features" class="nav-link {% if active=='features' %}active{% endif %}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+        Risk Analytics
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <!-- Admin panel link — injected by JS only for admin role -->
+      <div id="admin-nav-item"></div>
+      <button class="logout-btn" onclick="doLogout()">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
+      <div class="user-pill" id="sidebar-email"></div>
+    </div>
+  </aside>
+
+  <!-- ── Page ── -->
+  <div class="main-content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<!-- ── Shared auth JS ── -->
+<script>
+function getToken(){ return localStorage.getItem('token'); }
+function getUser(){ try{ return JSON.parse(localStorage.getItem('user')||'{}'); }catch(e){ return {}; } }
+
+function authHeaders(){
+  return {'Content-Type':'application/json','Authorization':'Bearer '+getToken()};
+}
+
+async function apiFetch(url, opts={}){
+  const res = await fetch(url, { headers: authHeaders(), ...opts });
+  if(res.status===401){ doLogout(); return null; }
+  return res;
+}
+
+function doLogout(){
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  window.location.href='/login';
+}
+
+// Guard: redirect to login if no token
+(function(){
+  if(!getToken()){ window.location.href='/login'; return; }
+  const u = getUser();
+  const el = document.getElementById('sidebar-email');
+  if(el && u.email) el.textContent = u.email;
+
+  // Inject Admin Panel link for admin role only
+  if(u.role === 'admin'){
+    const navItem = document.getElementById('admin-nav-item');
+    if(navItem){
+      navItem.innerHTML = `
+        <a href="/admin" class="nav-link" style="margin-bottom:4px;color:var(--warn)"
+           ${window.location.pathname==='/admin' ? 'class="nav-link active"' : ''}>
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Admin Panel
+        </a>`;
+    }
+  }
+
+  // Role pill below email
+  if(el && u.role){
+    const pill = document.createElement('div');
+    pill.style.cssText = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:4px;margin-left:12px;';
+    const colours = {admin:'background:#ede9fe;color:#6d28d9', analyst:'background:#eff6ff;color:#2563eb', user:'background:#f1f5f9;color:#475569'};
+    pill.style.cssText += colours[u.role] || colours.user;
+    pill.textContent = u.role;
+    el.parentNode.insertBefore(pill, el.nextSibling);
+  }
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

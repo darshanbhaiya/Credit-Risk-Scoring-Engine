@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Accept Invite — RiskEngine</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<main class="auth-screen">
+  <a href="/" class="back-link">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <polyline points="15,18 9,12 15,6"/>
+    </svg>
+    Back to home
+  </a>
+
+  <!-- Validating state -->
+  <div class="auth-card" id="validating-card" style="align-items:center;gap:12px">
+    <div class="auth-brand">RiskEngine</div>
+    <div style="font-size:14px;color:var(--muted)">Validating invite…</div>
+  </div>
+
+  <!-- Invalid token state -->
+  <div class="auth-card" id="invalid-card" style="display:none;align-items:center;gap:12px;text-align:center">
+    <div class="auth-brand">RiskEngine</div>
+    <svg width="48" height="48" fill="none" stroke="#dc2626" stroke-width="1.5" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="15" y1="9" x2="9" y2="15"/>
+      <line x1="9" y1="9" x2="15" y2="15"/>
+    </svg>
+    <h2 style="font-size:18px">Invite Invalid or Expired</h2>
+    <p style="font-size:13px;color:var(--muted);line-height:1.6">
+      This invite link has already been used or has expired.<br/>
+      Ask your admin to generate a new one.
+    </p>
+    <a href="/login" class="btn btn-ghost" style="width:100%;justify-content:center">Go to Login</a>
+  </div>
+
+  <!-- Registration form -->
+  <form class="auth-card" id="invite-form" style="display:none" onsubmit="submitForm(event)">
+
+    <div class="auth-heading">
+      <div class="auth-brand">RiskEngine</div>
+      <h1>You're Invited</h1>
+      <p id="invite-subtitle">Set a password to activate your account</p>
+    </div>
+
+    <!-- Role chip -->
+    <div style="display:flex;align-items:center;gap:10px;background:#f8fafc;
+                border:1px solid var(--border);border-radius:10px;padding:12px 16px">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+      <div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;
+                    letter-spacing:.04em">Invited as</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)" id="role-display">—</div>
+      </div>
+    </div>
+
+    <!-- Email (read-only, pre-filled from token) -->
+    <label>
+      Work Email
+      <div class="icon-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        <input type="email" id="invite-email" readonly
+               style="background:#f8fafc;color:var(--muted);cursor:not-allowed"/>
+      </div>
+    </label>
+
+    <!-- Password -->
+    <label>
+      Choose Password <span style="font-weight:400;color:var(--muted)">(min 8 characters)</span>
+      <div class="icon-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <input type="password" id="invite-password" placeholder="••••••••"
+               minlength="8" required autocomplete="new-password"/>
+      </div>
+    </label>
+
+    <!-- Confirm Password -->
+    <label>
+      Confirm Password
+      <div class="icon-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <input type="password" id="invite-confirm" placeholder="••••••••"
+               minlength="8" required autocomplete="new-password"/>
+      </div>
+    </label>
+
+    <div class="error-box" id="err"></div>
+
+    <button type="submit" class="btn btn-primary" id="submit-btn" style="width:100%">
+      Activate Account
+    </button>
+
+    <div class="auth-foot">Already have an account? <a href="/login">Sign in</a></div>
+  </form>
+
+  <!-- Success state -->
+  <div class="auth-card" id="success-card" style="display:none;align-items:center;gap:14px;text-align:center">
+    <div class="auth-brand">RiskEngine</div>
+    <svg width="52" height="52" fill="none" stroke="#16a34a" stroke-width="1.5" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10"/>
+      <polyline points="9,12 12,15 16,9"/>
+    </svg>
+    <h2 style="font-size:18px">Account Activated</h2>
+    <p style="font-size:13px;color:var(--muted);line-height:1.6" id="success-msg">
+      Your account is ready. Redirecting to dashboard…
+    </p>
+    <a href="/dashboard" class="btn btn-primary" style="width:100%;justify-content:center">
+      Go to Dashboard
+    </a>
+  </div>
+
+</main>
+<script>
+// Already logged in? redirect.
+if (localStorage.getItem('token')) window.location.href = '/dashboard';
+
+const params = new URLSearchParams(window.location.search);
+const token  = params.get('token') || '';
+
+// ── Validate token on page load ───────────────────────────────────────────────
+(async function validateToken() {
+  if (!token) {
+    show('invalid-card');
+    return;
+  }
+
+  const res = await fetch(`/api/auth/invite/${encodeURIComponent(token)}`);
+  if (!res.ok) {
+    show('invalid-card');
+    return;
+  }
+
+  const data = await res.json();
+  const roleLabel = data.role.charAt(0).toUpperCase() + data.role.slice(1);
+
+  document.getElementById('invite-email').value    = data.email;
+  document.getElementById('role-display').textContent = roleLabel;
+  document.getElementById('invite-subtitle').textContent =
+    `Setting up your ${roleLabel} account at RiskEngine`;
+
+  show('invite-form');
+})();
+
+function show(id) {
+  ['validating-card','invalid-card','invite-form','success-card'].forEach(c => {
+    document.getElementById(c).style.display = c === id ? 'flex' : 'none';
+  });
+}
+
+// ── Submit registration ───────────────────────────────────────────────────────
+async function submitForm(e) {
+  e.preventDefault();
+  const errEl  = document.getElementById('err');
+  const btn    = document.getElementById('submit-btn');
+  const pass   = document.getElementById('invite-password').value;
+  const confirm= document.getElementById('invite-confirm').value;
+
+  errEl.style.display = 'none';
+
+  if (pass !== confirm) {
+    errEl.textContent   = 'Passwords do not match.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled    = true;
+  btn.textContent = 'Activating…';
+
+  try {
+    const res = await fetch('/api/auth/register-analyst', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ token, password: pass }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        Array.isArray(data.detail)
+          ? data.detail.map(x => x.msg).join('. ')
+          : (data.detail || 'Registration failed')
+      );
+    }
+
+    // Auto-login after successful registration
+    const lr = await fetch('/api/auth/login', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({
+        email:    data.email,
+        password: pass,
+      }),
+    });
+    const ld = await lr.json();
+    if (lr.ok) {
+      localStorage.setItem('token', ld.access_token);
+      const me = await (await fetch('/api/auth/me', {
+        headers: {'Authorization': 'Bearer ' + ld.access_token}
+      })).json();
+      localStorage.setItem('user', JSON.stringify(me));
+    }
+
+    document.getElementById('success-msg').textContent =
+      `Welcome, ${data.email}. Your ${data.role} account is active. Redirecting…`;
+    show('success-card');
+    setTimeout(() => window.location.href = '/dashboard', 2000);
+
+  } catch (ex) {
+    errEl.textContent   = ex.message;
+    errEl.style.display = 'block';
+    btn.disabled    = false;
+    btn.textContent = 'Activate Account';
+  }
+}
+</script>
+</body>
+</html>

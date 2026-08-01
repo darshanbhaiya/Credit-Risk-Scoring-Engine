@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% block title %}Evaluation Report — RiskEngine{% endblock %}
+
+{% block head %}
+<style>
+/* ── Results page extras ── */
+.result-layout{display:grid;grid-template-columns:320px 1fr;gap:20px;margin-bottom:24px;align-items:start}
+
+/* Gauge card */
+.gauge-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column;align-items:center;gap:0}
+.gauge-card .panel-title{width:100%;font-size:14px;font-weight:700;padding-bottom:14px;border-bottom:1px solid #e2e8f0;margin-bottom:20px}
+.gauge-score-val{font-family:'Outfit',sans-serif;font-size:48px;font-weight:800;line-height:1;color:#0f172a;margin-top:-6px}
+.gauge-risk-lbl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-top:2px}
+.gauge-meta{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:20px;border-top:1px solid #e2e8f0;padding-top:16px}
+.gauge-meta-item{text-align:center;padding:8px 0}
+.gauge-meta-item:first-child{border-right:1px solid #e2e8f0}
+.gm-label{font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.gm-value{font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:#0f172a;margin-top:3px}
+
+/* Score band indicator */
+.score-track{width:100%;height:8px;border-radius:4px;background:linear-gradient(to right,#dc2626 0%,#d97706 35%,#2563eb 55%,#16a34a 80%);margin:16px 0 4px;position:relative;overflow:visible}
+.score-marker{position:absolute;top:-4px;width:16px;height:16px;border-radius:50%;background:#0f172a;border:3px solid #fff;box-shadow:0 0 0 1px #0f172a;transform:translateX(-50%);transition:left .8s ease}
+.score-range-labels{width:100%;display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;font-weight:600}
+
+/* Feature chart card */
+.feature-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.feature-card .panel-title{font-size:14px;font-weight:700;padding-bottom:14px;border-bottom:1px solid #e2e8f0;margin-bottom:20px}
+.feature-legend{display:flex;gap:16px;margin-top:16px;font-size:12px;color:#64748b}
+.fl-item{display:flex;align-items:center;gap:6px;font-weight:600}
+.fl-dot{width:10px;height:10px;border-radius:3px}
+
+/* Data grid improved */
+.data-grid-v2{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#e2e8f0;border-radius:12px;overflow:hidden;margin-top:0}
+.data-cell{background:#fff;padding:16px 18px}
+.data-cell .dc-label{font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.data-cell .dc-val{font-size:15px;font-weight:700;color:#0f172a}
+
+/* Decision banner improved */
+.decision-banner-v2{border-radius:14px;padding:18px 22px;margin-bottom:20px;display:flex;align-items:center;gap:16px}
+.decision-banner-v2.approved{background:#f0fdf4;border:1.5px solid #86efac}
+.decision-banner-v2.rejected{background:#fef2f2;border:1.5px solid #fca5a5}
+.decision-banner-v2.review{background:#fffbeb;border:1.5px solid #fcd34d}
+.db-icon{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;flex-shrink:0}
+.db-icon.approved{background:#dcfce7}
+.db-icon.rejected{background:#fee2e2}
+.db-icon.review{background:#fef9c3}
+.db-decision{font-size:16px;font-weight:800;letter-spacing:.01em}
+.db-reasoning{font-size:13px;color:#475569;margin-top:3px;line-height:1.5}
+
+@media(max-width:960px){
+  .result-layout{grid-template-columns:1fr}
+  .data-grid-v2{grid-template-columns:1fr 1fr}
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header-row">
+  <div>
+    <a href="/applications" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#64748b;margin-bottom:10px">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15,18 9,12 15,6"/></svg>
+      Back to list
+    </a>
+    <h1 id="r-title">Evaluation Report</h1>
+    <p id="r-subtitle" style="color:#64748b;font-size:14px;margin-top:4px"></p>
+  </div>
+  <button class="btn btn-ghost btn-sm" onclick="downloadReport()" style="flex-shrink:0">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Download Report
+  </button>
+</div>
+
+<!-- Decision banner -->
+<div class="decision-banner-v2" id="decision-banner">
+  <div class="db-icon" id="db-icon">
+    <svg id="db-svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"></svg>
+  </div>
+  <div>
+    <div class="db-decision" id="d-decision">—</div>
+    <div class="db-reasoning" id="d-reasoning"></div>
+  </div>
+</div>
+
+<!-- Score gauge + Feature chart side by side -->
+<div class="result-layout">
+
+  <!-- Left: Gauge card -->
+  <div class="gauge-card">
+    <div class="panel-title">Risk Score</div>
+
+    <!-- SVG gauge -->
+    <div class="gauge-wrap" style="width:100%;max-width:260px">
+      <svg viewBox="0 0 240 150">
+        <path class="zone r" d="M30 125a90 90 0 0 1 60-85"/>
+        <path class="zone a" d="M90 40a90 90 0 0 1 60 0"/>
+        <path class="zone g" d="M150 40a90 90 0 0 1 60 85"/>
+        <g id="gauge-needle" style="transform:rotate(0deg);transform-origin:120px 125px;transition:transform .9s cubic-bezier(.34,1.56,.64,1)">
+          <line class="needle" x1="120" y1="125" x2="120" y2="50"/>
+        </g>
+        <circle cx="120" cy="125" r="9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+        <circle cx="120" cy="125" r="4" fill="#0f172a"/>
+      </svg>
+    </div>
+
+    <div class="gauge-score-val" id="g-score">—</div>
+    <div class="gauge-risk-lbl" id="g-label">—</div>
+
+    <!-- Score gradient track -->
+    <div style="width:100%;padding:0 4px;margin-top:20px">
+      <div class="score-track">
+        <div class="score-marker" id="score-marker" style="left:50%"></div>
+      </div>
+      <div class="score-range-labels">
+        <span>300</span><span>580</span><span>670</span><span>740</span><span>850</span>
+      </div>
+    </div>
+
+    <!-- Confidence + Class -->
+    <div class="gauge-meta">
+      <div class="gauge-meta-item">
+        <div class="gm-label">Confidence</div>
+        <div class="gm-value" id="g-conf">—</div>
+      </div>
+      <div class="gauge-meta-item">
+        <div class="gm-label">Risk Class</div>
+        <div class="gm-value" id="g-class">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Feature contributions chart -->
+  <div class="feature-card">
+    <div class="panel-title">Top Feature Contributions</div>
+    <canvas id="feature-chart" height="230"></canvas>
+    <div class="feature-legend">
+      <div class="fl-item"><div class="fl-dot" style="background:#16a34a"></div>Reduces risk (positive)</div>
+      <div class="fl-item"><div class="fl-dot" style="background:#dc2626"></div>Increases risk (negative)</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Applicant data grid -->
+<div class="panel">
+  <div class="panel-title">Applicant Financial Profile</div>
+  <div class="data-grid-v2" id="data-grid">
+    <div class="data-cell" style="grid-column:1/-1;color:#64748b;font-size:13px">Loading…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
+Chart.defaults.color = '#64748b';
+
+const appId = window.location.pathname.split('/').pop();
+let appData = null;
+let featureChart = null;
+
+async function loadResult(){
+  const res = await apiFetch('/api/applications/'+appId);
+  if(!res) return;
+  appData = await res.json();
+  render(appData);
+}
+
+function render(item){
+  const r = item.score_result;
+  const a = item.applicant_data;
+
+  // ── Header ──────────────────────────────────────────────────────
+  document.getElementById('r-title').textContent    = a.name + ' — Evaluation Report';
+  document.getElementById('r-subtitle').textContent = `Submitted application · Score: ${r.risk_score} · ${r.risk_class} risk`;
+
+  // ── Decision banner ──────────────────────────────────────────────
+  const banner   = document.getElementById('decision-banner');
+  const icon     = document.getElementById('db-icon');
+  const svg      = document.getElementById('db-svg');
+  const decision = r.decision;
+  const cls      = decision==='APPROVED'?'approved':decision==='REJECTED'?'rejected':'review';
+  banner.className = 'decision-banner-v2 '+cls;
+  icon.className   = 'db-icon '+cls;
+  document.getElementById('d-decision').textContent  = decision;
+  document.getElementById('d-reasoning').textContent = r.reasoning;
+
+  // Decision icon
+  const icons = {
+    approved: '<polyline points="20,6 9,17 4,12"/>',
+    rejected: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    review:   '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'
+  };
+  const iconColors = {approved:'#16a34a', rejected:'#dc2626', review:'#d97706'};
+  svg.setAttribute('stroke', iconColors[cls]);
+  svg.innerHTML = icons[cls];
+
+  // ── Gauge ────────────────────────────────────────────────────────
+  const score = r.risk_score;
+  const rot   = -118 + ((score-300)/550)*236;
+  document.getElementById('gauge-needle').style.transform = `rotate(${rot}deg)`;
+  document.getElementById('g-score').textContent = score;
+  document.getElementById('g-score').style.color = score>=740?'#16a34a':score>=580?'#2563eb':'#dc2626';
+  document.getElementById('g-label').textContent = r.risk_class+' RISK';
+  document.getElementById('g-conf').textContent  = r.confidence+'%';
+  document.getElementById('g-class').textContent = r.risk_class;
+
+  // Score track marker position (300–850 mapped to 0–100%)
+  const markerPct = ((score-300)/550)*100;
+  document.getElementById('score-marker').style.left = markerPct+'%';
+
+  // ── Feature chart ────────────────────────────────────────────────
+  const features = r.top_features.map(f=>({
+    name: f.feature.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+    impact: f.impact,
+    color: f.impact>=0 ? 'rgba(22,163,74,0.15)' : 'rgba(220,38,38,0.15)',
+    border: f.impact>=0 ? '#16a34a' : '#dc2626',
+  }));
+
+  const labels   = features.map(f=>f.name);
+  const values   = features.map(f=>f.impact);
+  const bgColors = features.map(f=>f.color);
+  const brColors = features.map(f=>f.border);
+
+  if(featureChart) featureChart.destroy();
+  featureChart = new Chart(document.getElementById('feature-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: bgColors,
+        borderColor: brColors,
+        borderWidth: 2,
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      animation: { duration: 900, easing: 'easeInOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          titleColor: '#94a3b8',
+          bodyColor: '#f8fafc',
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: (items) => items[0].label,
+            label: (item) => {
+              const v = item.raw;
+              return (v>=0?'+':'')+v+' — '+(v>=0?'reduces risk':'increases risk');
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: '#f1f5f9' },
+          border: { display: false },
+          ticks: { font: { size: 11 }, callback: v => (v>=0?'+':'')+v },
+        },
+        y: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { size: 12, weight: '600' } }
+        }
+      }
+    }
+  });
+
+  // ── Data grid ────────────────────────────────────────────────────
+  const cells = [
+    ['Applicant Name',    a.name],
+    ['Age',               a.age + ' years'],
+    ['Employment',        a.employment_type+' · '+a.employment_years+' yrs'],
+    ['Annual Income',     '₹'+a.annual_income.toLocaleString()],
+    ['Loan Amount',       '₹'+a.loan_amount.toLocaleString()],
+    ['Loan Purpose',      a.loan_purpose+' · '+a.tenure+' months'],
+    ['Debt-to-Income',    (a.debt_to_income_ratio*100).toFixed(1)+'%'],
+    ['Payment Score',     a.payment_history_score+'/100'],
+    ['Credit History',    a.credit_history_length+' years'],
+    ['Credit Accounts',   a.num_credit_accounts+' accounts'],
+    ['Active Loans',      a.existing_loans+' loans'],
+    ['Past Delinquencies',a.num_delinquencies+' recorded'],
+  ];
+
+  document.getElementById('data-grid').innerHTML = cells.map(([label,val])=>`
+    <div class="data-cell">
+      <div class="dc-label">${label}</div>
+      <div class="dc-val">${val}</div>
+    </div>`).join('');
+}
+
+function downloadReport(){
+  if(!appData) return;
+  const r=appData.score_result, a=appData.applicant_data;
+  const lines=[
+    'RISKENGINE — AUTOMATED CREDIT RISK SCORE REPORT',
+    '================================================',
+    '',
+    'APPLICANT PROFILE',
+    `Name:              ${a.name}`,
+    `Age:               ${a.age}`,
+    `Employment:        ${a.employment_type} (${a.employment_years} yrs)`,
+    `Annual Income:     INR ${a.annual_income.toLocaleString()}`,
+    `Credit History:    ${a.credit_history_length} yrs`,
+    `DTI Ratio:         ${(a.debt_to_income_ratio*100).toFixed(1)}%`,
+    `Payment Score:     ${a.payment_history_score}/100`,
+    `Active Loans:      ${a.existing_loans}`,
+    `Delinquencies:     ${a.num_delinquencies}`,
+    `Loan Amount:       INR ${a.loan_amount.toLocaleString()}`,
+    `Loan Purpose:      ${a.loan_purpose}`,
+    `Tenure:            ${a.tenure} months`,
+    '',
+    'ENGINE EVALUATION',
+    `Decision:          ${r.decision}`,
+    `Risk Score:        ${r.risk_score}`,
+    `Risk Class:        ${r.risk_class}`,
+    `Confidence:        ${r.confidence}%`,
+    `Reasoning:         ${r.reasoning}`,
+    '',
+    'TOP CONTRIBUTING FACTORS',
+    ...r.top_features.map((f,i)=>`${i+1}. ${f.feature}: ${f.impact>=0?'+':''}${f.impact} (${f.impact>=0?'reduces':'increases'} risk)`),
+    '',
+    'Generated by RiskEngine. Confidential.',
+  ];
+  const blob = new Blob([lines.join('\n')],{type:'text/plain'});
+  const url  = URL.createObjectURL(blob);
+  const a2   = document.createElement('a');
+  a2.href=url; a2.download=`credit-risk-report-${appData.id}.txt`;
+  a2.click(); URL.revokeObjectURL(url);
+}
+
+loadResult();
+</script>
+{% endblock %}

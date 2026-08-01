@@ -1,0 +1,486 @@
+================================================================================
+  CREDIT RISK SCORING ENGINE
+================================================================================
+
+================================================================================
+SECTION 1 — ELEVATOR PITCH (60 SECONDS)
+================================================================================
+
+Use this when they say:
+  "Tell me about a project you've worked on"
+  "Walk me through your portfolio"
+  "What have you built?"
+
+---
+
+THE PITCH:
+
+"I built a credit risk scoring engine in Python and Flask backed by PostgreSQL.
+The core of it is an XGBoost classifier that takes 14 financial inputs — things
+like debt-to-income ratio, payment history, delinquencies, income, and loan
+amount — and classifies an applicant as LOW, MEDIUM, or HIGH default risk.
+
+On top of that I built a FICO-style scoring system from 300 to 850, similar to
+how banks actually report risk, with a three-way decision output: APPROVED,
+REJECTED, or MANUAL REVIEW for borderline cases. I use SHAP values to explain
+which features drove each individual decision — which matters in regulated
+environments because you can't just give someone a black-box rejection.
+
+Beyond the core model I added seven enterprise features that mirror what banks
+actually do: SR 11-7 model validation metrics like AUC and KS statistic, a
+CCAR-style stress testing engine, Expected Loss calculations using the
+PD × LGD × EAD formula, Basel III capital adequacy, a Champion/Challenger
+deployment framework, an immutable audit trail for regulatory compliance, and
+fraud velocity detection.
+
+The system has role-based access — users, analysts, and admins — where analysts
+can override MANUAL REVIEW decisions with a mandatory written note that gets
+permanently recorded in the audit log. That human-in-the-loop design reflects
+how credit decisions actually work at banks."
+
+---
+
+STOP THERE. Let them ask follow-up questions. Do not keep talking.
+
+================================================================================
+SECTION 2 — DEEP DIVE ANSWERS
+================================================================================
+
+These are the questions they will ask after the pitch. Exact answers below.
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "Walk me through the scoring model in more detail."
+────────────────────────────────────────────────────────────────────────────────
+
+"The model is an XGBoost gradient boosted tree classifier with a multi-class
+softprob objective — so instead of a hard label it outputs a probability
+distribution across the three risk classes. I use 160 estimators, max depth 4,
+learning rate 0.08. It's trained on a synthetic dataset of 4,000 applicants
+generated with realistic statistical distributions — lognormal income,
+beta-distributed DTI, Poisson delinquency counts — with a composite financial
+pressure signal used to assign labels with roughly a 48/30/22 split across
+LOW, MEDIUM, HIGH. That creates a realistic class imbalance.
+
+The FICO-style score is calculated separately on top of the classification.
+It starts with a base score anchored to the predicted class — 755 for LOW,
+635 for MEDIUM, 515 for HIGH — then adjusts based on individual feature values.
+Payment history is the most impactful factor at about 35%, debt-to-income ratio
+at 30%, then credit history length, number of accounts, employment stability,
+and a loan-to-income ratio penalty. The final score is clamped to 300-850.
+
+The decision is then derived from both the risk class and the score together.
+Only LOW risk with a score above 690 gets APPROVED. HIGH risk or score below
+580 gets REJECTED. Everything else goes to MANUAL REVIEW — which forces a human
+decision rather than letting the model make a borderline call autonomously."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "Why did you use XGBoost instead of logistic regression or a neural network?"
+────────────────────────────────────────────────────────────────────────────────
+
+"Three reasons. First, XGBoost handles tabular data with mixed feature scales
+without needing normalisation, which matters when you have features ranging
+from age in years to annual income in hundreds of thousands.
+
+Second, it natively supports SHAP TreeExplainer, which gives exact Shapley
+values rather than approximations. In a regulated credit environment you need
+to be able to explain individual decisions to auditors and, in some
+jurisdictions, to the applicant themselves under adverse action notice
+requirements.
+
+Third, logistic regression wouldn't capture the non-linear interactions
+between features — for example, the combined effect of high DTI and high
+delinquencies is worse than their sum suggests. Neural networks would capture
+that but add complexity and reduce explainability without giving meaningful
+accuracy gains on a dataset this size."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "What is SHAP and why does it matter?"
+────────────────────────────────────────────────────────────────────────────────
+
+"SHAP stands for SHapley Additive exPlanations. It's based on game theory —
+specifically Shapley values from cooperative game theory — and it assigns each
+feature a contribution to the model's output for a specific prediction.
+
+The key property is that SHAP values are additive and sum to the total
+prediction, so they're not just a ranking of feature importance globally.
+They tell you for this specific applicant, payment history score pushed the
+prediction toward LOW risk by 0.54 and debt-to-income ratio pushed it toward
+HIGH risk by 0.16.
+
+In credit risk this matters because SR 11-7, the Federal Reserve's model risk
+guidance, requires that model decisions be explainable. If a loan officer
+asks why an application was rejected, or an auditor reviews a decision, you
+need feature-level attribution. SHAP provides that."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "Explain the Expected Loss calculation."
+────────────────────────────────────────────────────────────────────────────────
+
+"Expected Loss is EL = PD × LGD × EAD. It's the fundamental credit risk
+formula — every bank uses it for pricing, provisioning, and capital allocation.
+
+PD is the Probability of Default. In my system I derive it from the model's
+risk classification and confidence score. For HIGH risk applicants PD equals
+the model confidence — if the model is 85% confident the borrower is HIGH
+risk, PD is 0.85. For LOW risk applicants I scale the uncertainty into a
+realistic range — a LOW risk applicant with 90% model confidence gets a PD
+of around 3%.
+
+LGD is Loss Given Default — the fraction of the exposure you actually lose
+if the borrower defaults. I use 45%, which is the Basel standard for
+unsecured retail loans. Secured loans would be lower, maybe 20-30%, because
+you can recover collateral.
+
+EAD is Exposure at Default — the amount outstanding when default occurs.
+For a fully drawn term loan it's simply the loan amount.
+
+So a 100,000 rupee loan classified as HIGH risk with 85% confidence:
+EL = 0.85 × 0.45 × 100,000 = 38,250 rupees in expected loss.
+
+At the portfolio level I aggregate total EL and express it as a percentage
+of total EAD, which gives the portfolio EL rate — a key metric for
+provisioning and pricing decisions."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "What is CCAR stress testing and how did you implement it?"
+────────────────────────────────────────────────────────────────────────────────
+
+"CCAR is the Comprehensive Capital Analysis and Review — an annual Federal
+Reserve requirement where large banks must demonstrate they can survive
+severely adverse macroeconomic scenarios. The severely adverse scenario
+typically involves something like 6.5 percentage point rise in unemployment,
+5% GDP contraction, and 300 basis point rate shock.
+
+In my implementation I translate these macro shocks into a score severity
+multiplier. Under severe stress, each applicant's risk score is compressed
+toward 300: stressed_score = 300 + (original_score - 300) × 0.60. So a
+score of 700 becomes 300 + 400 × 0.60 = 540 — which would flip from
+APPROVED to REJECTED under the standard decision thresholds.
+
+The engine then counts how many applications flip from approved to rejected,
+sums the loan amounts of those applications as exposure at risk, and
+recalculates Expected Loss at the stressed PD to show how much EL increases
+under the scenario.
+
+I'll be honest — the PD scaling under stress is a simplified approximation.
+Real CCAR uses vintage-based econometric models that link unemployment and
+GDP directly to segment-level default rates. But the framework — applying
+scenarios, recalculating decisions, measuring exposure at risk and EL
+impact — is structurally the same."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "What is Basel III and why is capital adequacy important?"
+────────────────────────────────────────────────────────────────────────────────
+
+"Basel III is the international regulatory framework that requires banks to
+hold capital proportional to their risk-weighted assets. The minimum Capital
+Adequacy Ratio is 8% — the bank must hold at least 8 rupees in capital for
+every 100 rupees of risk-weighted assets.
+
+Risk weighting is the key concept. Not all loans consume the same capital.
+Under the IRB approach, a low-PD loan gets a 75% risk weight, a medium-PD
+loan gets 100%, and a high-PD loan gets 150%. So a high-risk loan consumes
+twice as much capital as a low-risk loan of the same size.
+
+This matters because capital is expensive. Every rupee held as regulatory
+capital is a rupee not deployed in higher-returning investments. Banks
+therefore have a strong economic incentive to reject high-risk loans — not
+just because of credit losses, but because approving them ties up capital.
+That is why credit risk models directly affect bank profitability, not just
+loss rates.
+
+In my system I calculate RWA and CAR for the approved portfolio and flag
+whether it is Well Capitalised (CAR >= 10%), Adequately Capitalised (8-10%),
+or Undercapitalised (below 8%)."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "What is SR 11-7 and why did you reference it?"
+────────────────────────────────────────────────────────────────────────────────
+
+"SR 11-7 is the Federal Reserve's guidance on Model Risk Management, issued
+in 2011. It applies to all banks supervised by the Fed and has become the
+de facto standard for model governance across the industry globally.
+
+It has three core requirements. First, model validation — every model used
+for material decisions must be validated by a team independent of the
+development team, using metrics like AUC, KS statistic, and PSI to assess
+discrimination and stability. Second, ongoing monitoring — models must be
+continuously monitored in production for drift and performance degradation.
+Third, governance — clear documentation of model assumptions, limitations,
+and who approved the model for use.
+
+I implemented the validation metrics — AUC, Gini, KS, and PSI — and the
+audit trail that documents every decision the model makes. The
+Champion/Challenger framework is also SR 11-7 aligned because it requires
+new models to prove themselves before replacing production models."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "What is the Champion/Challenger framework?"
+────────────────────────────────────────────────────────────────────────────────
+
+"It's the industry-standard approach to safe model deployment. Instead of
+replacing the production model immediately when you build a new one, you run
+both in parallel. The champion is the current production model and makes all
+real decisions. The challenger shadow-scores the same applications without
+affecting decisions — it's just collecting data.
+
+After enough shadow scores — typically 1,000 or more, which covers several
+months of volume — you compare the two models on discrimination metrics
+(Gini and KS), approval rates, and agreement rate. If the challenger
+outperforms the champion by at least 3-5% on discrimination and hasn't
+drifted too far from its approval rate, you promote it.
+
+Goldman Sachs's Model Risk Group mandates this process before any model
+goes live. JPMorgan's QRCS team requires a minimum of three to six months
+of parallel scoring before promotion.
+
+In my implementation I track model_version on every application. The
+comparison endpoint groups by model version and computes side-by-side
+metrics. Right now everything is champion-v1 — to fully demo it you'd
+route 10-20% of applications randomly to challenger-v1, which the
+framework is ready to support."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "Explain the audit trail design."
+────────────────────────────────────────────────────────────────────────────────
+
+"The audit log is an append-only table — the application code never runs
+UPDATE or DELETE against it, only INSERT. Every significant event writes
+a row: application scored, user login, analyst override, role change, invite
+created.
+
+Each row captures the event type, the user who triggered it, the related
+application if any, the IP address, and a JSONB payload with event-specific
+detail. The JSONB design means I can add new event types without schema
+changes — the payload is flexible per event type.
+
+The regulatory basis for this is SR 11-7 which requires traceability of
+all model inputs and decisions, SOX which requires immutable financial
+records, and GDPR which requires logs of personal data processing.
+
+The analyst override event is particularly important. When an analyst
+changes a MANUAL REVIEW decision, the audit entry captures the old status,
+the new status, the analyst's full written note explaining the reason, and
+the analyst's identity. That is the exact paper trail a compliance team
+or regulator would look for during a model audit."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "How does the role-based access control work?"
+────────────────────────────────────────────────────────────────────────────────
+
+"Three roles: user, analyst, and admin. Users can only submit applications
+and see their own results. Analysts can see all applications, access all
+seven analytics features, override MANUAL REVIEW decisions, and export
+data. Admins have everything analysts have plus user management.
+
+Authentication uses JWT tokens. On login the server issues a signed JWT
+with the user's email as the subject and an 8-hour expiry. Every protected
+API call includes this token in the Authorization header as a Bearer token.
+
+The key design decision is that the role is not stored in the JWT. On every
+request the token is decoded, the email is extracted, and the user row is
+fetched fresh from the database. This means if an admin demotes someone to
+user, that change takes effect on their very next API call — there's no
+waiting for a token to expire.
+
+Passwords are hashed with bcrypt using a unique salt per user, so even if
+the database were compromised the passwords are not recoverable."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "Why did you build a MANUAL REVIEW tier instead of just APPROVED/REJECTED?"
+────────────────────────────────────────────────────────────────────────────────
+
+"Because no bank lets a model make the final lending decision alone.
+
+Regulators, and common sense, require human oversight of borderline cases.
+The model is good at the extremes — clear approvals and clear rejections —
+but in the middle there are applicants where the model is uncertain and
+the decision has real consequences for both the borrower and the bank.
+
+MANUAL REVIEW forces those cases to a human underwriter. The analyst sees
+the full application, the risk score, and the SHAP feature attribution, and
+makes an informed decision with a mandatory written note. That note goes
+into the immutable audit trail so there is always a documented reason for
+every credit decision — which is what SR 11-7 and fair lending regulations
+require."
+
+================================================================================
+SECTION 3 — HONEST ANSWERS (WHEN THEY CHALLENGE YOU)
+================================================================================
+
+Interviewers at GS and JPMorgan will probe for weaknesses. Answer these
+honestly — it actually impresses them more than pretending everything is perfect.
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "The data is synthetic — how do you know the model actually works?"
+────────────────────────────────────────────────────────────────────────────────
+
+"It doesn't work in a production sense — it works as a demonstration of
+the pipeline. The synthetic data shows the system end-to-end: data in,
+features engineered, model scores, decision produced, result stored.
+
+In a real deployment you'd train on historical loan performance data with
+actual default outcomes — typically 24 to 36 months of vintage data. The
+model architecture, feature engineering, scoring formula, and decision logic
+would all carry over. The weights and thresholds would be different because
+they'd be learned from real repayment behaviour."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "The AUC and KS — are those real metrics or estimates?"
+────────────────────────────────────────────────────────────────────────────────
+
+"They're estimates derived from score distributions, not from ground-truth
+default labels. I don't have actual default outcomes — the synthetic dataset
+has risk labels assigned by a financial pressure formula, not by observed
+loan performance.
+
+The calculation is mathematically correct: I use the Wilcoxon-Mann-Whitney
+estimator for AUC and the proper CDF comparison for KS. But the labels I'm
+using as 'bad borrowers' are HIGH risk classifications, not confirmed defaults.
+In production you'd compute these on a holdout set where you know which loans
+actually defaulted. The code documents this clearly."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "You said PD is derived from model confidence — that's not how PD works."
+────────────────────────────────────────────────────────────────────────────────
+
+"You're right. Model confidence is the probability the model assigns to
+its predicted class — it's not a calibrated probability of default.
+
+What I've done is use confidence as a proxy to construct a PD estimate.
+For HIGH risk, I use confidence directly. For LOW risk, I scale the
+uncertainty into a realistic PD range — so 90% confident LOW gives roughly
+3% PD, 51% confident LOW gives roughly 15% PD.
+
+In production, PD would be estimated by training a separate calibrated
+model on historical default outcomes, or by applying Platt scaling or
+isotonic regression to calibrate the classifier output against actual
+default rates. The EL formula and Basel calculations would then use those
+calibrated PDs."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "The Champion/Challenger only has one model — the challenger is never used."
+────────────────────────────────────────────────────────────────────────────────
+
+"Correct. Right now all applications are scored against champion-v1 because
+that's hardcoded in the application creation endpoint. The framework is fully
+built — the model_version field is stored on every application, the comparison
+query groups by it, and the promotion criteria logic works.
+
+To actually use it I'd add routing logic in the scoring endpoint: randomly
+assign 10-20% of incoming applications to challenger-v1, score them with a
+second model bundle, and store the result with model_version set to
+challenger-v1. After enough volume the comparison tab would show real
+side-by-side metrics. The infrastructure is ready — I just haven't trained
+a meaningfully different challenger model to demo the comparison."
+
+────────────────────────────────────────────────────────────────────────────────
+Q: "What would you change if this was going to production at a bank?"
+────────────────────────────────────────────────────────────────────────────────
+
+"Several things.
+
+Model: Train on real historical loan performance data with actual default
+labels. Calibrate PD properly. Add feature drift monitoring with automated
+alerts. Implement backtesting against recent vintages.
+
+Infrastructure: Move invite tokens from in-memory dict to a database table
+with expiry timestamps. Add refresh tokens so users don't get logged out
+mid-session. Add rate limiting on the scoring endpoint. Deploy behind a
+reverse proxy with HTTPS.
+
+Compliance: Add database-level row security on the audit_log to enforce
+the append-only constraint at the PostgreSQL level, not just in application
+code. Integrate with SIEM tooling like Splunk for security monitoring.
+Add model documentation artifacts for SR 11-7 model inventory.
+
+Data: The stress testing PD scaling would be replaced with segment-level
+econometric models linking macro factors to default rates. The Expected
+Loss calculations would use lifetime EL for CECL provisioning compliance.
+
+None of these change the architecture — they build on top of it."
+
+================================================================================
+SECTION 4 — NUMBERS TO REMEMBER
+================================================================================
+
+These come up in interviews. Know them cold.
+
+  Score range          300 to 850  (same as FICO)
+  APPROVED threshold   score >= 690 AND risk class LOW
+  REJECTED threshold   score < 580 OR risk class HIGH
+  Model accuracy       approximately 90% on held-out test set
+  Training dataset     4,000 synthetic applicants
+  LGD assumption       45% (Basel standard for unsecured retail)
+  MEDIUM risk PD       15% (fixed assumption)
+  Basel min CAR        8%
+  Well capitalised     CAR >= 10%
+  Mild stress          scores × 0.85  (unemployment +2pp, GDP -1.5%)
+  Moderate stress      scores × 0.75  (unemployment +4pp, GDP -3.0%)
+  Severe stress        scores × 0.60  (unemployment +6.5pp, GDP -5.0%)
+  JWT expiry           8 hours
+  PSI stable           < 0.10
+  PSI monitor          0.10 to 0.25
+  PSI retrain          > 0.25
+  AUC good credit      0.70 to 0.85
+  KS strong model      > 0.40
+  Champion promotion   Gini delta > 0.03 AND KS delta > 0.03
+
+================================================================================
+SECTION 5 — REGULATORY TERMS TO USE NATURALLY
+================================================================================
+
+Drop these into your answers. They signal you understand the domain.
+
+  SR 11-7          Federal Reserve Model Risk Management guidance (2011)
+                   Requires model validation, monitoring, and governance
+
+  CCAR             Comprehensive Capital Analysis and Review
+                   Annual Fed stress test for large banks
+
+  DFAST            Dodd-Frank Act Stress Testing
+                   Stress testing requirement for mid-size banks
+
+  Basel III        International capital adequacy framework
+                   Requires banks to hold 8% capital against RWA
+
+  IRB Approach     Internal Ratings Based
+                   Allows banks to use internal models for capital calculations
+
+  CECL             Current Expected Credit Loss (FASB ASC 326)
+                   Requires lifetime EL provisioning at loan origination
+
+  SOX              Sarbanes-Oxley Act
+                   Requires immutable audit trails for financial systems
+
+  GDPR             General Data Protection Regulation
+                   Requires records of personal data processing
+
+  BCBS 239         Basel Committee data aggregation principles
+                   Requires data lineage from raw inputs to risk metrics
+
+  Adverse action   Legal requirement to explain credit denials to applicants
+                   Why SHAP explainability matters in consumer credit
+
+================================================================================
+SECTION 6 — ONE-LINE SUMMARIES FOR QUICK RECALL
+================================================================================
+
+If your mind goes blank mid-interview, use these to restart.
+
+  The project      Credit risk scoring engine — ML model + enterprise analytics
+  The model        XGBoost classifier → 3 risk classes → FICO-style score → decision
+  SHAP             Explains which features drove each individual prediction
+  Expected Loss    PD × LGD × EAD — the fundamental credit risk formula
+  Stress testing   Apply macro shocks to scores, count approvals lost, measure EL rise
+  Basel III        Banks must hold 8% of risk-weighted assets as capital
+  SR 11-7          Fed guidance requiring model validation, monitoring, governance
+  Audit trail      Append-only log of every decision — SR 11-7 / SOX / GDPR
+  Champion/Chall   New model shadow-scores before replacing production model
+  MANUAL REVIEW    Borderline cases go to a human analyst — model never decides alone
+  Analyst override Human changes a flagged decision, mandatory note logged permanently
+  Role control     User sees own apps, Analyst sees all + overrides, Admin manages users
+
+================================================================================
+END OF INTERVIEW_GUIDE.txt
+================================================================================

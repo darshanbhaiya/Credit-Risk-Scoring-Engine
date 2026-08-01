@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables — never commit secrets
+.env
+
+# ML model (large binary, regenerate with train_model.py)
+app/model.pkl
+
+# Database files
+*.db
+*.sqlite3
+
+# Logs
+*.log
+*-dev*.log
+
+# Node (only if frontend is ever rebuilt)
+node_modules/
+dist/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

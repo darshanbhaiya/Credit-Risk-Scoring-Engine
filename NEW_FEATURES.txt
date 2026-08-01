@@ -1,0 +1,634 @@
+================================================================================
+  CREDIT RISK SCORING ENGINE — NEW FEATURES DOCUMENTATION
+================================================================================
+
+Author: Generated from code review
+Version: 4.0 (post-enterprise features)
+
+This document covers every new feature added beyond the original scoring engine.
+Each section explains: what it is, how the logic works, why it is used, and
+whether the implementation is correct.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+ 1.  Role-Based Access Control (3 Roles)
+ 2.  Auto-Seeded Admin Account
+ 3.  Admin Panel — User Management
+ 4.  Invite-Based Analyst Registration
+ 5.  Analyst Override (Human-in-the-Loop)
+ 6.  Immutable Audit Trail
+ 7.  Model Validation (SR 11-7)
+ 8.  Stress Testing (CCAR / DFAST)
+ 9.  Expected Loss (PD × LGD × EAD)
+10.  Champion / Challenger Framework
+11.  Basel III Capital Adequacy
+12.  Fraud Velocity Detection
+13.  CSV Export
+14.  model_version + IP Tracking on Applications
+15.  Logic Issues Found and Fixed
+
+================================================================================
+1. ROLE-BASED ACCESS CONTROL (3 ROLES)
+================================================================================
+
+WHAT IT IS:
+  Three distinct roles control what each user can see and do:
+    - user     : standard applicant access
+    - analyst  : credit analyst with read-all and override permissions
+    - admin    : full system access including user management
+
+HOW IT WORKS:
+  auth_utils.py has three Flask route decorators:
+
+  @login_required     — any authenticated user passes
+  @analyst_required   — only analyst or admin roles pass
+  @admin_required     — only admin role passes
+
+  All three share the same internal _resolve_user() function which:
+    1. Reads the Bearer token from the Authorization header
+    2. Decodes the JWT using the secret key
+    3. Extracts the email (stored as JWT subject)
+    4. Fetches the user row from PostgreSQL by email
+    5. Returns the full user dict or None if anything fails
+
+  The role check happens AFTER token validation, so a stolen token for a
+  demoted user will fail correctly because the role is read fresh from DB
+  on every request — not stored inside the JWT.
+
+WHY IT IS USED:
+  Banks have strict access separation. A regular loan applicant should never
+  see another person's financial data. An analyst needs portfolio-wide access
+  to do their job. An admin manages the system. This mirrors real credit
+  operations at Goldman Sachs and JPMorgan.
+
+LOGIC CORRECT? YES.
+  Role is fetched from DB on every request. Demotion takes effect immediately
+  on the user's next API call. JWT expiry is 8 hours.
+
+================================================================================
+2. AUTO-SEEDED ADMIN ACCOUNT
+================================================================================
+
+WHAT IT IS:
+  On every app startup, if the users table is empty, a default admin account
+  is created automatically. No manual registration or SQL needed.
+
+  Email    : admin@riskengine.com
+  Password : password123
+
+HOW IT WORKS:
+  _seed_admin() in main.py runs after schema bootstrap:
+    1. Counts rows in the users table
+    2. If count == 0, inserts the admin account with bcrypt-hashed password
+    3. Wrapped in try/except — if DB is unavailable at startup it silently
+       skips and the app continues (seed runs on next successful connection)
+
+WHY IT IS USED:
+  Eliminates the "chicken and egg" problem — you need an admin to create
+  analysts, but you need to register first to get admin. The seed breaks
+  this loop. Useful for demos and first-time setup.
+
+LOGIC CORRECT? YES, with one note.
+  The seed only fires when users table is empty (count == 0). If you drop
+  all tables and restart, it re-seeds correctly. If any users exist, it
+  is skipped — safe to run on every restart.
+
+================================================================================
+3. ADMIN PANEL — USER MANAGEMENT
+================================================================================
+
+WHAT IT IS:
+  A dedicated /admin page with 3 tabs:
+    - Overview : user count stats + invite link generator
+    - Users    : table of all users with role dropdowns to change roles
+    - Roles    : reference guide explaining all role permissions
+
+HOW IT WORKS:
+  Frontend: admin.html fetches GET /api/auth/users on load.
+  Role change: dropdown + Save button calls PATCH /api/auth/users/<id>/role.
+
+  Backend PATCH /api/auth/users/<id>/role:
+    1. Requires admin_required decorator
+    2. Validates new role is one of: user, analyst, admin
+    3. Blocks admin from demoting themselves (safety guard)
+    4. Updates the users table
+    5. Writes ROLE_CHANGED event to audit_log with old role, new role,
+       target email, and who made the change
+
+  The Admin Panel link appears in the sidebar ONLY for admin-role users.
+  This is injected by JavaScript after calling /api/auth/me on page load.
+
+WHY IT IS USED:
+  Gives the admin a proper UI to manage users without touching SQL.
+  For interviews: demonstrates role governance and access control design.
+
+LOGIC CORRECT? YES.
+  Self-demotion guard prevents accidentally locking yourself out.
+  Every change is audited. Role takes effect on user's next request.
+
+================================================================================
+4. INVITE-BASED ANALYST REGISTRATION
+================================================================================
+
+WHAT IT IS:
+  Admin generates a single-use URL. The recipient opens it, sets a password,
+  and their account is created with a pre-assigned role (analyst or user).
+
+HOW IT WORKS:
+  Step 1 — Admin calls POST /api/auth/invite with {email, role}:
+    - Validates email is not already registered
+    - Generates a cryptographically secure 32-byte URL-safe token
+      using Python's secrets.token_urlsafe(32)
+    - Stores token in in-memory dict: _invite_tokens[token] = {email, role}
+    - Returns the full invite URL: http://host/invite?token=...
+    - Writes INVITE_CREATED to audit log
+
+  Step 2 — Invitee opens the URL (/invite?token=...):
+    - Page calls GET /api/auth/invite/<token> to validate token
+    - If valid: pre-fills email (read-only), shows role, shows password form
+    - If invalid or expired: shows error card
+
+  Step 3 — Invitee sets password, submits POST /api/auth/register-analyst:
+    - Looks up token in _invite_tokens
+    - Creates user with pre-assigned role
+    - Deletes token from dict (single-use)
+    - Auto-logs them in and redirects to dashboard
+
+WHY IT IS USED:
+  Avoids giving anyone the ability to self-register as analyst. Only an
+  admin can grant analyst access, enforcing the principle of least privilege.
+
+LOGIC CORRECT? MOSTLY YES — one known limitation.
+  Tokens are stored in-memory. If the server restarts, all pending invite
+  tokens are lost and become invalid. This is documented in the code.
+  In production: store tokens in a DB table with an expiry timestamp.
+  For a demo/interview project this is acceptable.
+
+================================================================================
+5. ANALYST OVERRIDE (HUMAN-IN-THE-LOOP)
+================================================================================
+
+WHAT IT IS:
+  An analyst or admin can change a MANUAL REVIEW application to APPROVED
+  or REJECTED with a mandatory written note. Every override is permanently
+  logged to the audit trail.
+
+HOW IT WORKS:
+  Frontend: Applications page shows an "Override" button on MANUAL REVIEW
+  rows, but only for analyst/admin users (checked via /api/auth/me on load).
+  Clicking opens a modal showing the application details with a note textarea.
+
+  Backend PATCH /api/features/override/<id>:
+    1. Requires analyst_required decorator
+    2. Validates body with StatusOverride schema (new_status + note, min 5 chars)
+    3. Fetches application, checks it exists
+    4. Checks current status is MANUAL REVIEW or PENDING (rejects others)
+    5. Updates application status in DB
+    6. Writes STATUS_OVERRIDE to audit_log with:
+         - old_status, new_status
+         - note (analyst's written reason)
+         - analyst_id and analyst_email
+
+WHY IT IS USED:
+  Regulators and banks require that no model makes a final lending decision
+  alone. A human underwriter must review borderline cases. SR 11-7 requires
+  this human-in-the-loop step to be documented with a reason.
+
+LOGIC CORRECT? YES.
+  The guard checking current status prevents overriding an already-approved
+  or already-rejected application. The note is validated server-side (not
+  just client-side). The audit entry captures full identity.
+
+================================================================================
+6. IMMUTABLE AUDIT TRAIL
+================================================================================
+
+WHAT IT IS:
+  An append-only log table that records every significant event in the system.
+  No UPDATE or DELETE is ever run against it — only INSERT.
+
+EVENTS LOGGED:
+  USER_REGISTERED    — new user created (email, role)
+  USER_LOGIN         — successful login (email, role)
+  APPLICATION_SCORED — application submitted and scored (decision, score,
+                       risk class, confidence, loan amount, applicant name)
+  STATUS_OVERRIDE    — analyst overrides a decision (old/new status, note,
+                       analyst identity)
+  ROLE_CHANGED       — admin changes a user's role (old/new role, who changed)
+  INVITE_CREATED     — admin generates an invite link (email, role)
+  ANALYST_REGISTERED — analyst accepts invite and registers
+
+HOW IT WORKS:
+  Each event writes to audit_log table with:
+    - event_type (VARCHAR)
+    - user_id (FK to users, nullable)
+    - application_id (FK to applications, nullable)
+    - ip_address (from X-Forwarded-For or remote_addr)
+    - user_agent (browser string)
+    - payload (JSONB — flexible per-event data)
+    - created_at (auto-set by PostgreSQL, immutable)
+
+  The audit-log viewer at GET /api/features/audit-log supports filtering
+  by event_type and user_id.
+
+WHY IT IS USED:
+  SR 11-7 (Federal Reserve): requires traceability of all model decisions.
+  SOX (Sarbanes-Oxley): requires immutable logs for financial systems.
+  GDPR: requires records of personal data processing.
+
+LOGIC CORRECT? YES.
+  JSONB payload means new event types can be added without schema changes.
+  GIN index on payload allows fast key-path queries.
+  The append-only constraint is enforced by never calling UPDATE/DELETE in code
+  (PostgreSQL row-level security would be needed for true DB-level enforcement).
+
+
+================================================================================
+7. MODEL VALIDATION (SR 11-7)
+================================================================================
+
+WHAT IT IS:
+  Computes four standard model discrimination and stability metrics from
+  live application data. Endpoint: GET /api/features/model-validation
+
+METRICS:
+
+  AUC-ROC (Area Under ROC Curve)
+    Measures how well the model separates good borrowers from bad borrowers.
+    Range: 0.5 (random guess) to 1.0 (perfect separation).
+    Target for credit models: >= 0.70.
+
+    HOW CALCULATED HERE:
+    Treats HIGH risk class as "bad" borrowers and LOW as "good" borrowers.
+    Counts concordant pairs: pairs where the good borrower has a higher
+    (better) score than the bad borrower.
+    AUC = concordant_pairs / (total_bad × total_good)
+    This is the Wilcoxon-Mann-Whitney estimator of AUC — mathematically
+    equivalent to the standard AUC formula.
+
+  GINI COEFFICIENT
+    Gini = 2 × AUC - 1
+    Range: 0 (random) to 1 (perfect). More common in European banking.
+
+  KS STATISTIC (Kolmogorov-Smirnov)
+    Maximum separation between the cumulative distribution of LOW scores
+    vs HIGH scores across all possible score thresholds.
+    Strong models: KS > 0.40.
+
+    HOW CALCULATED HERE:
+    For each unique score threshold, computes:
+      CDF_good(t) = fraction of LOW-risk applicants with score <= t
+      CDF_bad(t)  = fraction of HIGH-risk applicants with score <= t
+    KS = max over all t of |CDF_good(t) - CDF_bad(t)|
+
+  PSI (Population Stability Index)
+    Detects if the score distribution has shifted between old and new data.
+    PSI < 0.10 : Stable (no action needed)
+    PSI 0.10-0.25 : Monitor (investigate)
+    PSI > 0.25 : Retrain model (significant drift)
+
+    HOW CALCULATED HERE:
+    Splits applications: oldest 50% = baseline, newest 50% = current.
+    Bins both into 8 score ranges.
+    PSI = SUM over bins of: (current% - baseline%) × ln(current% / baseline%)
+    Uses 1e-6 floor on bin percentages to prevent log(0).
+
+LOGIC CORRECT? YES, with documented caveat.
+  The AUC/KS calculations are mathematically correct but use SCORE as proxy
+  for "default" since we have no real ground-truth default outcomes (synthetic
+  data). In production you would use actual loan outcomes (defaulted/not) as
+  the true labels. The code documents this clearly.
+  PSI split (oldest 50% vs newest 50%) is a valid proxy for temporal drift.
+
+================================================================================
+8. STRESS TESTING (CCAR / DFAST)
+================================================================================
+
+WHAT IT IS:
+  Applies macroeconomic adverse scenarios to the loan portfolio and measures
+  how many approvals would flip to rejections, and by how much Expected Loss
+  increases. Endpoint: POST /api/features/stress-test
+
+THREE SCENARIOS:
+  Mild     — unemployment +2.0pp, GDP -1.5%, rates +100bps, severity 0.85
+  Moderate — unemployment +4.0pp, GDP -3.0%, rates +200bps, severity 0.75
+  Severe   — unemployment +6.5pp, GDP -5.0%, rates +300bps, severity 0.60
+  (Severe matches Federal Reserve CCAR "Severely Adverse" scenario parameters)
+
+HOW IT WORKS:
+  1. Fetches all non-rejected applications
+  2. For each application:
+     a. Stressed score = 300 + (original_score - 300) × severity
+        This compresses the score toward 300 proportionally.
+        Example: score 700, severe (0.60) → 300 + 400×0.60 = 540
+     b. Re-applies decision thresholds to stressed score:
+          >= 690 → APPROVED
+          580-689 → MANUAL REVIEW
+          < 580  → REJECTED
+     c. Counts flips: original APPROVED → stressed REJECTED
+     d. Stressed PD = min(base_PD / severity, 1.0)
+        (Stressed EL rises as PD increases under adverse conditions)
+  3. Aggregates: approvals lost, exposure at risk, EL increase
+
+LOGIC CORRECT? YES, with one note.
+  Score compression formula (300 + (score - 300) × severity) is a valid
+  proportional degradation approach. It correctly keeps 300 as floor.
+
+  The stressed PD formula (pd / severity) is a reasonable approximation:
+  if severity=0.60, PD is divided by 0.60 (multiplied by 1.67).
+  This is NOT a standard formula — real CCAR uses vintage analysis and
+  macro-factor models. But as a proxy for a demo, the direction is correct
+  (worse scenario = higher PD = higher EL). The code should document this
+  is a simplified approximation, which it does.
+
+================================================================================
+9. EXPECTED LOSS (PD × LGD × EAD)
+================================================================================
+
+WHAT IT IS:
+  Calculates the standard credit risk formula for each application and
+  aggregates portfolio-level exposure. Endpoint: GET /api/features/expected-loss
+
+FORMULA:
+  EL = PD × LGD × EAD
+
+  PD  = Probability of Default (derived from model output)
+  LGD = Loss Given Default = 0.45 (Basel standard for unsecured retail)
+  EAD = Exposure at Default = loan_amount
+
+HOW PD IS DERIVED:
+  HIGH risk class  → PD = confidence / 100
+    (model is confident this is a high-risk borrower)
+  LOW risk class   → PD = 1 - (confidence / 100)
+    (model is confident this is low-risk, so PD is the inverse)
+  MEDIUM risk class → PD = 0.15 (fixed assumption — mixed signals)
+
+LOGIC CORRECT? MOSTLY YES — one important note.
+
+  The PD derivation logic is reasonable as a proxy:
+    - HIGH with 85% confidence → PD = 0.85 (85% chance of default)
+    - LOW with 90% confidence  → PD = 0.10 (10% chance of default)
+    - MEDIUM                   → PD = 0.15 (fixed)
+
+  LIMITATION: In reality, "model confidence" is the probability the model
+  assigns to its predicted class — NOT the probability of default. A model
+  that is 90% confident the borrower is LOW risk means 90% probability of
+  LOW class, not 90% probability of repayment. Using (1 - confidence) as
+  PD for LOW risk is a reasonable approximation for a demo but not exact.
+
+  In production: PD would come from a calibrated PD model trained on
+  actual default outcomes, not from classifier confidence scores.
+
+  LGD = 0.45 is correct. Basel II/III standard for unsecured retail is
+  typically 45%, which is what the code uses.
+
+  EAD = loan_amount is correct for fully drawn term loans.
+
+================================================================================
+10. CHAMPION / CHALLENGER FRAMEWORK
+================================================================================
+
+WHAT IT IS:
+  Compares the production model (champion) against a shadow model (challenger)
+  by grouping applications by model_version and computing side-by-side metrics.
+  Endpoint: GET /api/features/models
+
+HOW IT WORKS:
+  1. Groups applications by model_version using SQL GROUP BY
+  2. For each model computes:
+       - sample size
+       - average risk score
+       - average confidence
+       - approval rate (approved / total)
+       - high-risk rate (high class / total)
+       - simulated Gini and KS (proxy from avg score)
+  3. If two or more model versions exist, generates a recommendation:
+       PROMOTE  — challenger Gini delta > 0.03 AND KS delta > 0.03
+                  AND challenger has >= 100 shadow scores
+       WAIT     — challenger has < 100 shadow scores
+       KEEP     — challenger improvement below threshold
+
+WHY IT IS USED:
+  Prevents catastrophic model failures in production. New models must prove
+  themselves on real data before replacing the champion. Standard practice
+  at Goldman Sachs Strats and JPMorgan QRCS.
+
+LOGIC CORRECT? PARTIALLY.
+  The framework structure and promotion criteria are correct.
+
+  LIMITATION: Currently all applications are scored with "champion-v1"
+  (hardcoded in applications.py). So the champion/challenger comparison
+  only shows one model. To truly demo this feature, you would need to
+  occasionally assign some applications to "challenger-v1" at scoring time
+  (e.g., 10-30% random routing). The framework is ready for this —
+  just change the model_version field in create_application() to route
+  a percentage to the challenger.
+
+  The Gini/KS per model are simulated from avg score (not real discrimination
+  metrics). This is documented as a proxy.
+
+================================================================================
+11. BASEL III CAPITAL ADEQUACY
+================================================================================
+
+WHAT IT IS:
+  Calculates Risk-Weighted Assets (RWA) and Capital Adequacy Ratio (CAR)
+  for the approved loan portfolio using the simplified Basel III IRB approach.
+  Endpoint: GET /api/features/basel-capital
+
+FORMULAS:
+  RWA = EAD × Risk Weight
+  Capital Required = 8% × RWA  (Basel III minimum)
+  CAR = (Available Capital / RWA) × 100%
+
+RISK WEIGHT TIERS (simplified IRB):
+  PD < 5%  → Risk Weight 75%
+  PD 5-15% → Risk Weight 100%
+  PD > 15% → Risk Weight 150%
+
+CAR STATUS:
+  >= 10% → Well Capitalised
+  8-10%  → Adequately Capitalised
+  < 8%   → Undercapitalised (regulatory intervention required)
+
+HOW IT WORKS:
+  1. Fetches all APPROVED applications (only approved loans consume capital)
+  2. For each: derives PD, assigns risk weight tier, computes RWA and capital
+  3. Aggregates total EAD, total RWA, total capital required
+  4. Assumes 12% available capital to compute the CAR
+
+LOGIC CORRECT? YES, as a simplified demonstration.
+  The risk weight tiers are simplified. The actual Basel II/III IRB formula
+  uses a complex correlation function based on PD that produces a continuous
+  risk weight curve. The three-tier simplification is correct in direction
+  (higher PD = higher weight) and the 75%/100%/150% values are real
+  Basel risk weight reference points.
+  The 8% capital minimum is correct (Basel III Pillar 1 minimum).
+  Assuming 12% available capital is a documented assumption in the code.
+
+
+================================================================================
+12. FRAUD VELOCITY DETECTION
+================================================================================
+
+WHAT IT IS:
+  Detects suspicious application submission patterns by looking at frequency
+  of submissions per user and per IP address within time windows.
+  Endpoint: GET /api/features/fraud-velocity
+
+TWO CHECKS:
+
+  USER VELOCITY (24-hour window):
+    Flags any user who submitted 2 or more applications in the last 24 hours.
+    Risk levels:
+      CRITICAL : 5 or more applications from same user
+      HIGH     : 3 or more applications from same user
+      MEDIUM   : 2 or more applications within 60 minutes of each other
+      LOW      : 2 or more but spread over longer period
+
+  IP REUSE (7-day window):
+    Flags any IP address associated with 2 or more different user accounts.
+    Risk levels:
+      HIGH   : 5 or more distinct users from same IP
+      MEDIUM : 2 or more distinct users from same IP
+
+HOW IT WORKS:
+  Two PostgreSQL queries using GROUP BY + HAVING:
+    Query 1: Groups applications by user_id in last 24h, filters count >= 2
+             Calculates time window using EXTRACT(EPOCH) for minutes
+    Query 2: Groups applications by ip_address in last 7 days,
+             filters COUNT(DISTINCT user_id) >= 2
+
+LOGIC CORRECT? YES.
+  The SQL logic is correct. HAVING COUNT(*) >= 2 correctly identifies
+  repeat submitters. EXTRACT(EPOCH) difference / 60 gives minutes correctly.
+  One note: ip_address may be NULL for some records (field is nullable).
+  The query filters WHERE ip_address IS NOT NULL AND ip_address != ''
+  which handles this correctly.
+
+================================================================================
+13. CSV EXPORT
+================================================================================
+
+WHAT IT IS:
+  Allows analysts and admins to download all application data as a CSV file.
+  Endpoint: GET /api/applications/export
+
+OPTIONAL FILTERS (query parameters):
+  ?decision=APPROVED         — only approved applications
+  ?risk_class=LOW            — only low-risk applications
+  Both can be combined.
+
+HOW IT WORKS:
+  1. Builds a parameterized SQL query with optional WHERE clauses
+  2. Extracts fields from JSONB columns using ->> operator
+  3. Writes to an in-memory StringIO buffer using Python's csv.DictWriter
+  4. Returns as text/csv with Content-Disposition: attachment header
+
+FIELDS EXPORTED:
+  id, name, annual_income, loan_amount, loan_purpose, risk_score,
+  risk_class, decision, confidence, status, model_version, created_at
+
+LOGIC CORRECT? YES.
+  SQL injection is prevented — filters use parameterized queries (%s).
+  The WHERE clause is built from a conditions list joined by AND, which
+  correctly handles both filters being present or absent.
+
+================================================================================
+14. MODEL VERSION + IP TRACKING ON APPLICATIONS
+================================================================================
+
+WHAT IT IS:
+  Every application now stores three additional fields:
+    model_version : which model scored it (default: "champion-v1")
+    ip_address    : client IP from X-Forwarded-For or remote_addr
+    user_agent    : browser/client string
+
+WHY IT IS USED:
+  model_version enables the Champion/Challenger framework — you can route
+  a percentage of applications to a challenger model and compare results.
+
+  ip_address enables fraud velocity detection — the IP reuse query reads
+  this field to find multiple users from the same IP.
+
+  user_agent is stored for audit completeness (regulatory requirement).
+
+LOGIC CORRECT? YES.
+  X-Forwarded-For is checked first (correct for apps behind a proxy/load
+  balancer). Falls back to request.remote_addr for direct connections.
+
+================================================================================
+15. LOGIC ISSUES FOUND AND NOTES
+================================================================================
+
+The following are honest notes about the implementation — important to know
+for interview discussions.
+
+ISSUE 1 — PD derivation is a proxy, not a true PD model
+  Location: features.py _derive_pd()
+  Detail: Uses classifier confidence as PD. Model confidence = probability
+  of class membership, not probability of default. The direction is correct
+  but the magnitude may be off. Acceptable for demo; not for production.
+  Interview answer: "In production I'd calibrate PD using Platt scaling or
+  isotonic regression against actual default outcomes."
+
+ISSUE 2 — Champion/Challenger only has one model version in practice
+  Location: applications.py create_application()
+  Detail: All applications are saved with model_version = "champion-v1".
+  The comparison framework works but there is no challenger data to compare
+  until you add routing logic.
+  Fix: Route 10-20% of applications to "challenger-v1" randomly. The schema
+  and query logic already support this.
+
+ISSUE 3 — Invite tokens lost on server restart
+  Location: auth.py _invite_tokens dict
+  Detail: In-memory Python dict is cleared when the process restarts.
+  Any pending invite links become invalid.
+  Fix for production: Store tokens in a DB table with expiry timestamp.
+
+ISSUE 4 — AUC/KS use score as proxy for default label
+  Location: features.py model_validation()
+  Detail: No real default labels exist (synthetic dataset). Uses HIGH risk
+  class as "bad" borrower proxy. Mathematically valid for the demo.
+  In production: use actual loan outcomes (defaulted: yes/no).
+
+ISSUE 5 — Stress test PD scaling is not a standard formula
+  Location: features.py stress_test()
+  Detail: stressed_pd = base_pd / severity is directionally correct but
+  not aligned with any specific regulatory formula. CCAR uses vintage
+  models and macro-factor regressions.
+  Interview answer: "This is a simplified sensitivity analysis. Production
+  CCAR uses econometric models linking unemployment/GDP to segment-level PDs."
+
+NONE OF THESE ARE BUGS — they are known, documented approximations.
+The code works correctly for its intended purpose as a demonstration system.
+
+================================================================================
+SUMMARY TABLE — ALL NEW FEATURES
+================================================================================
+
+Feature                    | Endpoint                              | Role Needed
+---------------------------|---------------------------------------|-------------
+Role-based access control  | All endpoints                         | Varies
+Auto-seed admin account    | (startup logic, no endpoint)          | System
+Admin panel                | /admin page                           | admin
+User role management       | PATCH /api/auth/users/<id>/role       | admin
+Invite-based registration  | POST /api/auth/invite                 | admin
+                           | POST /api/auth/register-analyst       | none (token)
+Analyst override           | PATCH /api/features/override/<id>     | analyst+
+Immutable audit trail      | GET /api/features/audit-log           | analyst+
+Model validation (SR 11-7) | GET /api/features/model-validation    | analyst+
+Stress testing (CCAR)      | POST /api/features/stress-test        | analyst+
+Expected Loss (EL formula) | GET /api/features/expected-loss       | analyst+
+Champion/Challenger        | GET /api/features/models              | analyst+
+Basel III capital          | GET /api/features/basel-capital       | analyst+
+Fraud velocity detection   | GET /api/features/fraud-velocity      | analyst+
+CSV export                 | GET /api/applications/export          | analyst+
+model_version tracking     | (stored on every application)         | system
+IP address tracking        | (stored on every application)         | system
+
+================================================================================
+END OF NEW_FEATURES.txt
+================================================================================

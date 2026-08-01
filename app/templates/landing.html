@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>RiskEngine — AI Credit Scoring</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="landing-nav">
+  <span class="nav-logo">RiskEngine</span>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#estimator">Estimator</a>
+    <a href="#pricing">Pricing</a>
+    <a href="/login" class="nav-login">Login</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-copy">
+    <div class="ml-badge">
+      <svg width="13" height="13" fill="none" stroke="#2563eb" stroke-width="2" viewBox="0 0 24 24"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+      Machine Learning Credit Scoring
+    </div>
+    <h1>Predict Credit Risk.<br/>Instantly. Accurately.</h1>
+    <p class="hero-sub">Advanced AI-powered credit scoring engine that transforms financial, demographic, and historical profile data into explainable, instant decisions.</p>
+    <div class="hero-btns">
+      <a href="/register" class="h-primary">Get Started Free &rarr;</a>
+      <a href="#estimator" class="h-sec">Try Estimator Sandbox</a>
+    </div>
+  </div>
+  <div class="hero-card">
+    <div class="gauge-wrap">
+      <svg viewBox="0 0 240 150" aria-label="Credit score 742">
+        <path class="zone r" d="M30 125a90 90 0 0 1 60-85"/>
+        <path class="zone a" d="M90 40a90 90 0 0 1 60 0"/>
+        <path class="zone g" d="M150 40a90 90 0 0 1 60 85"/>
+        <g style="transform:rotate(82deg);transform-origin:120px 125px">
+          <line class="needle" x1="120" y1="125" x2="120" y2="46"/>
+        </g>
+        <circle cx="120" cy="125" r="8" fill="#ffffff" stroke="#0f172a" stroke-width="1"/>
+      </svg>
+      <div class="gauge-score">742</div>
+      <div class="gauge-label">LOW RISK</div>
+    </div>
+    <div class="hero-conf">91.4% ML Confidence</div>
+  </div>
+</section>
+
+<!-- Stats -->
+<div class="stats-strip">
+  <div class="stat-cell"><strong class="counter" data-val="98.7" data-sfx="%">98.7%</strong><span>Prediction Accuracy</span></div>
+  <div class="stat-cell"><strong class="counter" data-val="2" data-sfx="M+">2M+</strong><span>Applications Scored</span></div>
+  <div class="stat-cell"><strong class="counter" data-val="200" data-sfx="ms">200ms</strong><span>Average Latency</span></div>
+  <div class="stat-cell"><strong class="counter" data-val="50" data-sfx="+">50+</strong><span>Risk Factors Configured</span></div>
+</div>
+
+<!-- Estimator -->
+<section id="estimator" class="sandbox-section" style="padding-top:80px">
+  <div class="section-center" style="padding-bottom:40px">
+    <h2>Interactive Scorer Sandbox</h2>
+    <p>Tweak variables below to simulate real-time ML risk categorisation.</p>
+  </div>
+  <div class="sandbox-grid">
+    <div class="panel">
+      <div class="sandbox-inputs">
+        <label>Annual Income (₹)<input type="number" id="s-income" value="950000" oninput="calcSandbox()"/></label>
+        <label>Loan Amount (₹)<input type="number" id="s-loan" value="250000" oninput="calcSandbox()"/></label>
+        <label>Debt-to-Income Ratio<input type="number" id="s-dti" step="0.01" min="0" max="1" value="0.28" oninput="calcSandbox()"/></label>
+        <label>Payment History (0-100)<input type="number" id="s-pay" min="0" max="100" value="88" oninput="calcSandbox()"/></label>
+        <label>Delinquencies<input type="number" id="s-del" min="0" value="0" oninput="calcSandbox()"/></label>
+        <label>Credit History (yrs)<input type="number" id="s-cred" min="0" value="8" oninput="calcSandbox()"/></label>
+      </div>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;align-items:center;gap:8px">
+      <div style="font-family:'Outfit',sans-serif;font-size:16px;font-weight:700;margin-bottom:4px">Scoring Outcome</div>
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 240 150">
+          <path class="zone r" d="M30 125a90 90 0 0 1 60-85"/>
+          <path class="zone a" d="M90 40a90 90 0 0 1 60 0"/>
+          <path class="zone g" d="M150 40a90 90 0 0 1 60 85"/>
+          <g id="sb-needle" style="transform:rotate(82deg);transform-origin:120px 125px;transition:transform .4s ease">
+            <line class="needle" x1="120" y1="125" x2="120" y2="46"/>
+          </g>
+          <circle cx="120" cy="125" r="8" fill="#ffffff" stroke="#0f172a" stroke-width="1"/>
+        </svg>
+        <div class="gauge-score" id="sb-score">742</div>
+        <div class="gauge-label" id="sb-label">LOW RISK</div>
+      </div>
+      <div style="font-size:13px;color:var(--muted)" id="sb-conf">87.3% confidence</div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<div class="section-center"><h2 id="features">Platform Features</h2><p>Everything you need to deploy accurate, auditable credit decisions.</p></div>
+<div class="features-grid">
+  <div class="feat-card"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg><h3>Real-Time Scoring</h3><p>Decision-ready risk scores in under 200ms.</p></div>
+  <div class="feat-card"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/></svg><h3>Explainable AI</h3><p>Top risk factors returned with every score.</p></div>
+  <div class="feat-card"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><h3>Fraud Detection</h3><p>Behavioural signals flag suspicious patterns.</p></div>
+  <div class="feat-card"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><h3>Batch Processing</h3><p>Designed for portfolios and single applicants.</p></div>
+  <div class="feat-card"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><h3>Regulatory Compliance</h3><p>Auditable decisions with stored score results.</p></div>
+  <div class="feat-card"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg><h3>API Integration</h3><p>Clean Flask routes for scoring and history.</p></div>
+</div>
+
+<!-- Flow -->
+<div class="flow-section">
+  <div class="section-center" style="padding-bottom:32px"><h2>How It Works</h2></div>
+  <div class="flow-grid">
+    <div class="flow-card"><div class="flow-num">1</div><strong>Submit Applicant Data</strong><p>Capture client parameters securely via the form or API.</p></div>
+    <div class="flow-card"><div class="flow-num">2</div><strong>AI Scores Risk</strong><p>XGBoost pipeline processes 10 financial and behavioural features.</p></div>
+    <div class="flow-card"><div class="flow-num">3</div><strong>Instant Decision</strong><p>APPROVED / REJECTED / MANUAL REVIEW with full explanation.</p></div>
+  </div>
+</div>
+
+<!-- Pricing -->
+<div class="pricing-section">
+  <div class="section-center" id="pricing" style="padding-bottom:36px"><h2>Pricing</h2><p>Simple, transparent plans for every team size.</p></div>
+  <div class="pricing-grid">
+    <div class="price-card">
+      <h3>Starter</h3><div class="price-amount">₹3,999</div><p>1,000 scores/month</p>
+      <ul class="price-features">
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> JWT dashboard</li>
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> API access</li>
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> PDF reports</li>
+      </ul>
+    </div>
+    <div class="price-card popular">
+      <div class="pop-tag">Most Popular</div>
+      <h3>Pro</h3><div class="price-amount">₹11,999</div><p>Advanced explanations</p>
+      <ul class="price-features">
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> JWT dashboard</li>
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> API access</li>
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> SHAP explanations</li>
+      </ul>
+    </div>
+    <div class="price-card">
+      <h3>Enterprise</h3><div class="price-amount">Custom</div><p>Dedicated deployment</p>
+      <ul class="price-features">
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> All Pro features</li>
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> Dedicated infra</li>
+        <li><svg width="15" height="15" fill="none" stroke="var(--ok)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12"/></svg> SLA support</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<footer style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:28px clamp(20px,6vw,88px);border-top:1px solid var(--border);background:#ffffff">
+  <span class="footer-logo">RiskEngine</span>
+  <span class="footer-link">Privacy Policy</span>
+  <span class="footer-link">Security Audits</span>
+  <span class="footer-link">Developer Docs</span>
+  <span style="margin-left:auto;font-size:12px;color:var(--muted)">&copy; 2026 Credit Risk Scoring Engine</span>
+</footer>
+
+<script>
+function calcSandbox(){
+  const inc = +document.getElementById('s-income').value||1;
+  const loan= +document.getElementById('s-loan').value||0;
+  const dti = +document.getElementById('s-dti').value||0;
+  const pay = +document.getElementById('s-pay').value||0;
+  const del = +document.getElementById('s-del').value||0;
+  const cr  = +document.getElementById('s-cred').value||0;
+  let s=660;
+  s += (pay-75)*1.5; s -= dti*120; s -= del*28;
+  s += Math.min(20,cr*2.5); s -= (loan/inc)*180;
+  s = Math.max(300,Math.min(850,Math.round(s)));
+  const lbl = s>=700?'LOW':s<580?'HIGH':'MEDIUM';
+  const conf= (82.4+(s%120)*0.12).toFixed(1);
+  const rot = -118+((s-300)/550)*236;
+  document.getElementById('sb-score').textContent=s;
+  document.getElementById('sb-label').textContent=lbl+' RISK';
+  document.getElementById('sb-conf').textContent=conf+'% confidence';
+  document.getElementById('sb-needle').style.transform=`rotate(${rot}deg)`;
+}
+calcSandbox();
+
+// Counters
+document.querySelectorAll('.counter').forEach(el=>{
+  const target=parseFloat(el.dataset.val), sfx=el.dataset.sfx, isInt=Number.isInteger(target);
+  let f=0; const t=setInterval(()=>{
+    f++; const v=target*f/40;
+    el.textContent=(isInt?Math.round(v):v.toFixed(1))+sfx;
+    if(f>=40){el.textContent=target+sfx;clearInterval(t);}
+  },28);
+});
+</script>
+</body>
+</html>
