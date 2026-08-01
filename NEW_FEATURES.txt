@@ -327,7 +327,9 @@ HOW IT WORKS:
           >= 690 → APPROVED
           580-689 → MANUAL REVIEW
           < 580  → REJECTED
-     c. Counts flips: original APPROVED → stressed REJECTED
+     c. Counts flips: current status APPROVED → stressed REJECTED
+        Uses current application status (not original model decision) so
+        analyst-overridden approvals are correctly counted as exposed.
      d. Stressed PD = min(base_PD / severity, 1.0)
         (Stressed EL rises as PD increases under adverse conditions)
   3. Aggregates: approvals lost, exposure at risk, EL increase
@@ -359,27 +361,28 @@ FORMULA:
   EAD = Exposure at Default = loan_amount
 
 HOW PD IS DERIVED:
-  HIGH risk class  → PD = confidence / 100
-    (model is confident this is a high-risk borrower)
-  LOW risk class   → PD = 1 - (confidence / 100)
-    (model is confident this is low-risk, so PD is the inverse)
+  HIGH risk class  → PD = 0.20 + (confidence / 100) × 0.35
+    Maps HIGH confidence into realistic subprime PD range [0.20, 0.55].
+    A model 85% confident of HIGH risk → PD = 0.20 + 0.85 × 0.35 = 0.498
+  LOW risk class   → PD = max(0.01, (1 - confidence / 100) × 0.30)
+    Higher confidence in LOW classification → lower PD.
+    Maps into prime PD range [0.01, 0.10].
+    A model 90% confident of LOW risk → PD = (0.10) × 0.30 = 0.030
   MEDIUM risk class → PD = 0.15 (fixed assumption — mixed signals)
 
-LOGIC CORRECT? MOSTLY YES — one important note.
+LOGIC CORRECT? YES — with noted simplification.
 
-  The PD derivation logic is reasonable as a proxy:
-    - HIGH with 85% confidence → PD = 0.85 (85% chance of default)
-    - LOW with 90% confidence  → PD = 0.10 (10% chance of default)
-    - MEDIUM                   → PD = 0.15 (fixed)
+  The PD derivation maps classifier confidence into realistic industry PD bands:
+    HIGH:   subprime range [0.20, 0.55] — reflects actual subprime default rates
+    LOW:    prime range [0.01, 0.10]    — reflects actual prime default rates
+    MEDIUM: 0.15 fixed                 — conservative midpoint assumption
 
   LIMITATION: In reality, "model confidence" is the probability the model
-  assigns to its predicted class — NOT the probability of default. A model
-  that is 90% confident the borrower is LOW risk means 90% probability of
-  LOW class, not 90% probability of repayment. Using (1 - confidence) as
-  PD for LOW risk is a reasonable approximation for a demo but not exact.
+  assigns to its predicted class — NOT the probability of default. Using
+  scaled confidence as a PD proxy is a reasonable approximation for a demo.
 
   In production: PD would come from a calibrated PD model trained on
-  actual default outcomes, not from classifier confidence scores.
+  actual default outcomes, using Platt scaling or isotonic regression.
 
   LGD = 0.45 is correct. Basel II/III standard for unsecured retail is
   typically 45%, which is what the code uses.
@@ -412,8 +415,7 @@ HOW IT WORKS:
 
 WHY IT IS USED:
   Prevents catastrophic model failures in production. New models must prove
-  themselves on real data before replacing the champion. Standard practice
-  at Goldman Sachs Strats and JPMorgan QRCS.
+  themselves on real data before replacing the champion.
 
 LOGIC CORRECT? PARTIALLY.
   The framework structure and promotion criteria are correct.
@@ -448,6 +450,14 @@ RISK WEIGHT TIERS (simplified IRB):
   PD 5-15% → Risk Weight 100%
   PD > 15% → Risk Weight 150%
 
+  IMPORTANT: These PD thresholds (5%, 15%) are NOT regulatory values from
+  the Basel framework. The actual Basel III Advanced IRB uses a continuous
+  risk weight function based on PD, LGD, and asset correlation (BIS CRE31).
+  The Basel standardised approach for retail uses a flat 75% regardless of PD.
+  The 150% tier applies to non-performing exposures under the standardised
+  approach. The three-tier table here is a demo simplification — directionally
+  correct (higher PD = higher weight) but the cutoff values are invented.
+
 CAR STATUS:
   >= 10% → Well Capitalised
   8-10%  → Adequately Capitalised
@@ -460,11 +470,13 @@ HOW IT WORKS:
   4. Assumes 12% available capital to compute the CAR
 
 LOGIC CORRECT? YES, as a simplified demonstration.
-  The risk weight tiers are simplified. The actual Basel II/III IRB formula
-  uses a complex correlation function based on PD that produces a continuous
-  risk weight curve. The three-tier simplification is correct in direction
-  (higher PD = higher weight) and the 75%/100%/150% values are real
-  Basel risk weight reference points.
+  The risk weight tiers are simplified. The actual Basel III Advanced IRB
+  formula uses a continuous correlation function based on PD that produces
+  a continuous risk weight curve (BIS CRE31). The three-tier simplification
+  is correct in direction (higher PD = higher weight) but the specific PD
+  cutoffs (5%, 15%) are invented for this demo — they are not regulatory
+  thresholds from the Basel framework. The 75%/100%/150% weight values
+  are real Basel reference points but normally applied differently.
   The 8% capital minimum is correct (Basel III Pillar 1 minimum).
   Assuming 12% available capital is a documented assumption in the code.
 
@@ -568,9 +580,14 @@ for interview discussions.
 
 ISSUE 1 — PD derivation is a proxy, not a true PD model
   Location: features.py _derive_pd()
-  Detail: Uses classifier confidence as PD. Model confidence = probability
-  of class membership, not probability of default. The direction is correct
-  but the magnitude may be off. Acceptable for demo; not for production.
+  Detail: Maps classifier confidence to realistic PD bands using a linear
+  scaling formula. Model confidence (probability of class membership) is not
+  the same as PD (probability of default), but the scaled mapping produces
+  industry-realistic values:
+    HIGH:   PD in [0.20, 0.55] — subprime range
+    LOW:    PD in [0.01, 0.10] — prime range
+    MEDIUM: PD = 0.15 fixed
+  Acceptable for demo; not for production.
   Interview answer: "In production I'd calibrate PD using Platt scaling or
   isotonic regression against actual default outcomes."
 
@@ -601,6 +618,19 @@ ISSUE 5 — Stress test PD scaling is not a standard formula
   models and macro-factor regressions.
   Interview answer: "This is a simplified sensitivity analysis. Production
   CCAR uses econometric models linking unemployment/GDP to segment-level PDs."
+
+ISSUE 6 — Basel risk weight PD thresholds are invented, not regulatory
+  Location: features.py _risk_weight(), NEW_FEATURES.txt Section 11
+  Detail: The three-tier table (PD < 5% → 75%, 5-15% → 100%, > 15% → 150%)
+  uses invented PD cutoffs. The real Basel III Advanced IRB uses a continuous
+  risk weight function (BIS CRE31) with no discrete PD buckets. The
+  standardised approach uses a flat 75% for all qualifying retail exposures.
+  The 150% tier applies to non-performing exposures under the standardised
+  approach, not to high-PD performing loans.
+  Interview answer: "These tiers are a demo simplification — directionally
+  correct but the 5% and 15% cutoffs are not regulatory thresholds. In
+  production I would implement the full IRB risk weight formula from BIS CRE31
+  or use the standardised approach flat weights."
 
 NONE OF THESE ARE BUGS — they are known, documented approximations.
 The code works correctly for its intended purpose as a demonstration system.

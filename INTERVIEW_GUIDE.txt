@@ -120,11 +120,20 @@ Q: "Explain the Expected Loss calculation."
 formula — every bank uses it for pricing, provisioning, and capital allocation.
 
 PD is the Probability of Default. In my system I derive it from the model's
-risk classification and confidence score. For HIGH risk applicants PD equals
-the model confidence — if the model is 85% confident the borrower is HIGH
-risk, PD is 0.85. For LOW risk applicants I scale the uncertainty into a
-realistic range — a LOW risk applicant with 90% model confidence gets a PD
-of around 3%.
+risk classification and confidence score using a scaled mapping into
+industry-realistic PD bands. Model confidence is not the same as PD —
+confidence is the probability of class membership, not the probability of
+default. So I scale it:
+
+  HIGH risk:   PD = 0.20 + (confidence / 100) × 0.35
+               Maps into the subprime range [0.20, 0.55].
+               85% confident HIGH → PD = 0.20 + 0.85 × 0.35 = 0.498
+
+  LOW risk:    PD = max(0.01, (1 − confidence / 100) × 0.30)
+               Maps into the prime range [0.01, 0.10].
+               90% confident LOW → PD = 0.10 × 0.30 = 0.030
+
+  MEDIUM risk: PD = 0.15 fixed — conservative assumption for mixed signals.
 
 LGD is Loss Given Default — the fraction of the exposure you actually lose
 if the borrower defaults. I use 45%, which is the Basel standard for
@@ -135,7 +144,8 @@ EAD is Exposure at Default — the amount outstanding when default occurs.
 For a fully drawn term loan it's simply the loan amount.
 
 So a 100,000 rupee loan classified as HIGH risk with 85% confidence:
-EL = 0.85 × 0.45 × 100,000 = 38,250 rupees in expected loss.
+PD = 0.20 + 0.85 × 0.35 = 0.498
+EL = 0.498 × 0.45 × 100,000 = 22,410 rupees in expected loss.
 
 At the portfolio level I aggregate total EL and express it as a percentage
 of total EAD, which gives the portfolio EL rate — a key metric for
@@ -178,9 +188,12 @@ Adequacy Ratio is 8% — the bank must hold at least 8 rupees in capital for
 every 100 rupees of risk-weighted assets.
 
 Risk weighting is the key concept. Not all loans consume the same capital.
-Under the IRB approach, a low-PD loan gets a 75% risk weight, a medium-PD
-loan gets 100%, and a high-PD loan gets 150%. So a high-risk loan consumes
-twice as much capital as a low-risk loan of the same size.
+Under the simplified IRB approach used in this demo, a low-PD loan gets a
+75% risk weight, a medium-PD loan gets 100%, and a high-PD loan gets 150%.
+The actual Basel III Advanced IRB formula uses a continuous function based
+on PD and asset correlation — the three tiers here are a simplified proxy,
+directionally correct but not regulatory cutoffs. So a high-risk loan
+consumes twice as much capital as a low-risk loan of the same size.
 
 This matters because capital is expensive. Every rupee held as regulatory
 capital is a rupee not deployed in higher-returning investments. Banks

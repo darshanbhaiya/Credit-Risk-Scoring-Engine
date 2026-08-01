@@ -12,8 +12,9 @@ function works, and how the files connect to each other.
   Credit-Risk-Scoring-Engine-main/
   ├── app/
   │   ├── routers/
-  │   │   ├── auth.py             POST /api/auth/register, login, GET /me
-  │   │   ├── applications.py     POST/GET /api/applications
+  │   │   ├── auth.py             POST/GET /api/auth/* — register, login, me, users, invite
+  │   │   ├── applications.py     POST/GET /api/applications — score, list, export
+  │   │   ├── features.py         GET/POST/PATCH /api/features/* — 7 enterprise analytics
   │   │   └── score.py            POST /api/score (stateless)
   │   ├── sql/
   │   │   └── schema.sql          PostgreSQL DDL — tables, indexes, view
@@ -24,23 +25,31 @@ function works, and how the files connect to each other.
   │   │   ├── landing.html        Public marketing page + score sandbox
   │   │   ├── login.html          Login form
   │   │   ├── register.html       Registration form
+  │   │   ├── invite.html         Analyst invite acceptance page
   │   │   ├── dashboard.html      KPI cards + Chart.js charts
   │   │   ├── new_application.html  3-step scoring wizard
-  │   │   ├── applications.html   Searchable history table
-  │   │   └── results.html        Score gauge + feature bar chart
+  │   │   ├── applications.html   Searchable history table with override controls
+  │   │   ├── results.html        Score gauge + feature bar chart
+  │   │   ├── features.html       7-tab Risk Analytics page (analyst/admin)
+  │   │   └── admin.html          Admin Panel — users, roles, invite generator
   │   ├── main.py                 Flask app factory + all page routes
   │   ├── database.py             PostgreSQL connection pool (psycopg2)
-  │   ├── auth_utils.py           JWT + bcrypt + @login_required decorator
+  │   ├── auth_utils.py           JWT + bcrypt + @login_required/@analyst_required/@admin_required
   │   ├── schemas.py              Pydantic v2 validation models
   │   ├── scoring.py              XGBoost inference pipeline (core engine)
   │   ├── train_model.py          Model training script (run once)
   │   ├── model.pkl               Serialised trained model (generated file)
   │   └── requirements.txt        Python dependencies
+  ├── Images/                     Screenshots used in README
   ├── .env                        Environment variables (not in git)
   ├── .env.example                Template showing all required variables
   ├── .gitignore
+  ├── README.md                   Project overview with screenshots
   ├── SETUP.md                    Step-by-step run guide
-  └── APP_EXPLAINER.txt           What the app does and how scoring works
+  ├── APP_EXPLAINER.txt           What the app does and how scoring works
+  ├── CODE_EXPLAINER.txt          This file — every file and function explained
+  ├── NEW_FEATURES.txt            All enterprise features documented with logic notes
+  └── INTERVIEW_GUIDE.txt         Interview prep — pitches, deep-dives, honest answers
 
 ================================================================================
   HOW A REQUEST FLOWS THROUGH THE SYSTEM
@@ -425,6 +434,10 @@ score_application(applicant)  — main public entry point
     7. adjustment = (payment_history_score - 75) * 1.3
                   - debt_to_income_ratio * 95
                   - num_delinquencies * 18
+                  + min(credit_history_length, 20) * 1.5
+                  + min(num_credit_accounts, 10) * 1.2
+                  - (loan_amount / annual_income) * 40
+                  + min(employment_years, 15) * 0.8
     8. risk_score = clip(base_score + adjustment, 300, 850)
     9. Decision logic:
          LOW + score >= 690  → APPROVED
@@ -445,6 +458,12 @@ register()  —  POST /api/auth/register
   1. Validates body as UserCreate (email + password min 8 chars)
   2. Checks if email already exists → 409 Conflict if so
   3. Counts users: if 0 → new user is "admin", otherwise "user"
+     NOTE: In practice this path never assigns admin via self-registration
+     because _seed_admin() in main.py already inserts the admin account on
+     startup before any user can register. The count==0 check is a safety
+     fallback for environments where the seed was skipped or the DB was
+     wiped and the app restarted without triggering the seed correctly.
+     Normal self-registrations always land on the "user" role.
   4. Hashes the password, inserts user row
   5. RETURNING clause returns the inserted row without a second query
   6. Returns UserRead schema with 201 Created

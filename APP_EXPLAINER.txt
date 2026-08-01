@@ -63,6 +63,10 @@ STEP 3 — Risk Score Calculation (300–850 scale)
     adjustment = (payment_history_score − 75) × 1.3
                − debt_to_income_ratio × 95
                − num_delinquencies × 18
+               + min(credit_history_length, 20) × 1.5
+               + min(num_credit_accounts, 10) × 1.2
+               − (loan_amount / annual_income) × 40
+               + min(employment_years, 15) × 0.8
 
   Final score = base_score + adjustment, clamped to [300, 850].
 
@@ -188,16 +192,31 @@ API ENDPOINTS
 --------------------------------------------------------------------------------
 All API routes are under /api/. Authentication uses JWT Bearer tokens.
 
-  POST  /api/auth/register      Register a new user account
-  POST  /api/auth/login         Login and receive a JWT token
-  GET   /api/auth/me            Get the current user's profile
+  POST  /api/auth/register            Register a new user account
+  POST  /api/auth/login               Login and receive a JWT token
+  GET   /api/auth/me                  Get the current user's profile
+  GET   /api/auth/users               List all users (admin only)
+  PATCH /api/auth/users/<id>/role     Change a user's role (admin only)
+  POST  /api/auth/invite              Generate a single-use invite link (admin only)
+  POST  /api/auth/register-analyst    Accept invite and create account (token)
+  GET   /api/auth/invite/<token>      Validate an invite token
 
-  POST  /api/applications       Submit an application (scores + stores result)
-  GET   /api/applications       List all applications for the current user
-  GET   /api/applications/<id>  Get a single application with full result
+  POST  /api/applications             Submit an application (scores + stores result)
+  GET   /api/applications             List applications (all for analyst/admin, own for user)
+  GET   /api/applications/<id>        Get a single application with full result
+  GET   /api/applications/export      Download all applications as CSV (analyst/admin)
 
-  POST  /api/score              Score without storing (stateless, no auth required)
-  GET   /api/health             Service health check
+  POST  /api/score                    Score without storing (stateless, no auth required)
+  GET   /api/health                   Service health check
+
+  GET   /api/features/model-validation    AUC, Gini, KS, PSI — SR 11-7 metrics (analyst+)
+  POST  /api/features/stress-test         CCAR/DFAST scenario analysis (analyst+)
+  GET   /api/features/expected-loss       PD × LGD × EAD portfolio (analyst+)
+  GET   /api/features/audit-log           Regulatory audit trail (analyst+)
+  GET   /api/features/models              Champion/Challenger comparison (analyst+)
+  GET   /api/features/basel-capital       Basel III RWA and CAR (analyst+)
+  GET   /api/features/fraud-velocity      Velocity flags and IP reuse (analyst+)
+  PATCH /api/features/override/<id>       Analyst override with note (analyst+)
 
 
 EXAMPLE API CALL (stateless scoring, no login required)

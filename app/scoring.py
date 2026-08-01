@@ -173,21 +173,18 @@ def score_application(applicant: ApplicantInput) -> ScoreResult:
     #   LOW  + score >= 690            → APPROVED
     #          (strong profile, model and score agree)
     #
-    #   LOW  + score 580–689           → MANUAL REVIEW
-    #          (model says low risk but score is borderline — underwriter check)
-    #
-    #   MEDIUM + score >= 680          → MANUAL REVIEW
-    #          (model is uncertain but score is reasonable — give benefit of doubt)
-    #
-    #   MEDIUM + score < 680           → MANUAL REVIEW
-    #          (mixed signals — underwriter required either way)
-    #
     #   HIGH + any score               → REJECTED
     #          (model flags high default probability)
     #
     #   ANY  + score < 580             → REJECTED
     #          (score floor: too risky regardless of class, safety net for
     #           edge cases where class and score disagree)
+    #
+    #   LOW  + score 580–689           → MANUAL REVIEW
+    #          (model says low risk but score is borderline — underwriter check)
+    #
+    #   MEDIUM + score >= 580          → MANUAL REVIEW
+    #          (model is uncertain — underwriter required regardless of score)
     # ------------------------------------------------------------------
     if risk_class == "LOW" and risk_score >= 690:
         decision = "APPROVED"
