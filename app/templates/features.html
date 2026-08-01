@@ -784,13 +784,20 @@ async function submitOverride(newStatus) {
   }
 
   document.getElementById('override-modal').classList.remove('open');
+
+  // Show toast confirmation
+  const toast = document.createElement('div');
+  toast.textContent = `Application #${appId} overridden to ${newStatus}`;
+  toast.style.cssText = 'position:fixed;bottom:28px;right:28px;background:#0f172a;color:#f8fafc;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:300;transition:opacity .3s';
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2800);
+
   // Reload audit log to show the new entry
   tabLoaded['audit-log'] = false;
   if (document.querySelector('.tab-btn[data-tab="audit-log"]').classList.contains('active')) {
     tabLoaded['audit-log'] = true;
     loadAuditLog();
   }
-  alert(`Application #${appId} successfully overridden to ${newStatus}.`);
 }
 
 document.getElementById('override-approve').addEventListener('click', () => submitOverride('APPROVED'));

@@ -158,7 +158,12 @@ const token  = params.get('token') || '';
 
 function show(id) {
   ['validating-card','invalid-card','invite-form','success-card'].forEach(c => {
-    document.getElementById(c).style.display = c === id ? 'flex' : 'none';
+    const el = document.getElementById(c);
+    if (c === id) {
+      el.style.display = c === 'invite-form' ? 'block' : 'flex';
+    } else {
+      el.style.display = 'none';
+    }
   });
 }
 
